@@ -56,7 +56,7 @@ Tests alone are not sufficient verification. A PR is verified only when its unit
 
 ### PR mechanics, for every PR
 
-- [ ] Open the PR ready, never draft, with `gh pr create` and `draft: false`, or with Graphite `gt` for a stack.
+- [ ] Open the PR ready, never draft, with `gh pr create` and `draft: false` (`--base <parent-branch>` for a stacked PR, or Graphite `gt` if the team uses it).
 - [ ] Run the repo's lint and typecheck once before the PR-facing push. Push with hooks on.
 - [ ] Run `/deslop` before each commit and `/no-comments` before review.
 - [ ] Triage every Bugbot and security-reviewer comment per `skills/poteto-mode/references/bugbot-triage.md` under the installed plugin.
@@ -130,7 +130,7 @@ Each live lane is one `swarm workers` lane at the PR head, resolved through prov
 - [ ] Root's clean verdict at the exact head SHA.
 - [ ] Bugbot triage done.
 - [ ] Rebased onto current trunk after the verdict, patch-id unchanged.
-- [ ] <The owner squash-merges its own PR, or the root appends the PR to the Graphite stack and the operator lands it.>
+- [ ] <The owner squash-merges its own PR, or the root appends the PR to the reviewed chain and the operator lands it.>
 
 ## Close the program
 

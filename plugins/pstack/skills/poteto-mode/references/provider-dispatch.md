@@ -39,6 +39,8 @@ Native dispatch avoids a second CLI startup and its base context.
 
 Do not send a same-provider descriptor to the external runner. It rejects that call because the native route is cheaper and already available.
 
+Beyond the matrix families, `pstack-sonnet-<effort>` agents ship for user-configured `claude:claude-sonnet-5@<effort>` descriptors — a fast, capable Claude lane for well-scoped building and verification fan-out. Sonnet is not part of the default panel quad; assign it per role in the setup sheet.
+
 ## External lanes
 
 The launcher lives at `skills/poteto-mode/scripts/runner/pstack-runner` under the installed plugin. The parent writes the complete candidate prompt to a unique file, creates a unique output directory or worktree, and invokes the launcher directly. Do not put another agent in front of it.

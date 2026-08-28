@@ -254,14 +254,49 @@ describe("model matrix", () => {
         }
       }
     }
-    const declaredCount = rows.reduce(
-      (count, row) =>
-        count +
-        (row.claudeNativeAgentStem === null
-          ? 0
-          : row.selectableEfforts.length),
-      0
-    );
+    const extraNativeLanes = [
+      {
+        stem: "sonnet",
+        provider: "claude",
+        model: "claude-sonnet-5",
+        efforts: ["low", "medium", "high", "xhigh", "max"],
+      },
+    ];
+    for (const lane of extraNativeLanes) {
+      for (const effort of lane.efforts) {
+        const name = `pstack-${lane.stem}-${effort}`;
+        expected.add(`${name}.md`);
+        const text = readFileSync(join(AGENTS_DIR, `${name}.md`), "utf8");
+        const { fields, body } = parseFrontmatter(text);
+        expect(fields).toEqual({
+          name,
+          description: `Native Claude lane for pstack roles configured as ${lane.provider}:${lane.model}@${effort}.`,
+          model: lane.model,
+          effort,
+          background: "true",
+          disallowedTools: "Agent, Task",
+        });
+        const prior = familyBodies.get(lane.stem);
+        if (prior === undefined) {
+          familyBodies.set(lane.stem, body);
+        } else {
+          expect(body).toBe(prior);
+        }
+      }
+    }
+    const declaredCount =
+      extraNativeLanes.reduce(
+        (count, lane) => count + lane.efforts.length,
+        0
+      ) +
+      rows.reduce(
+        (count, row) =>
+          count +
+          (row.claudeNativeAgentStem === null
+            ? 0
+            : row.selectableEfforts.length),
+        0
+      );
     expect(expected.size).toBe(declaredCount);
     const shipped = readdirSync(AGENTS_DIR)
       .filter((name) => name.startsWith("pstack-") && name.endsWith(".md"))
