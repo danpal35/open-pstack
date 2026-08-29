@@ -23,10 +23,10 @@ The allowed effort universe is exactly `low`, `medium`, `high`, `xhigh`, `max`. 
 
 The top-level harness resolves the route once. A child receives an assigned provider, model, effort, access mode, prompt, working directory, and output path. A child never detects the harness, chooses a provider, or launches another model. Environment markers may corroborate the top-level harness before fan-out, but nested processes inherit parent markers and must not use them for routing.
 
-| Parent | `claude:*` | `codex:*` | `grok:*` |
-|---|---|---|---|
-| Claude Code | native `Agent` | external runner | external runner |
-| Codex | external runner | native `spawn_agent` | external runner |
+| Parent | `claude:*` | `codex:*` | `grok:*` | `openrouter:*` |
+|---|---|---|---|---|
+| Claude Code | native `Agent` | external runner | external runner | external runner |
+| Codex | external runner | native `spawn_agent` | external runner | external runner |
 
 `inherit-parent` and `auto` remain aliases. They use the parent's current model and effort through its native subagent primitive. In a panel they still consume one lane, but they reduce provider diversity; say so in the synthesis record.
 
@@ -41,6 +41,8 @@ Do not send a same-provider descriptor to the external runner. It rejects that c
 
 Beyond the matrix families, `pstack-sonnet-<effort>` agents ship for user-configured `claude:claude-sonnet-5@<effort>` descriptors — a fast, capable Claude lane for well-scoped building and verification fan-out. Sonnet is not part of the default panel quad; assign it per role in the setup sheet.
 
+Also beyond the matrix, the external runner ships an `openrouter` provider for user-configured `openrouter:<openrouter-model-id>@<effort>` descriptors (e.g. `openrouter:x-ai/grok-4.6@high`, `openrouter:z-ai/glm-5.3-flash@high`). It is a one-shot API lane, not an agent CLI: no tools, no filesystem, no MCPs, read-only mode only — the runner rejects `isolated-write` for it. Use it for judge, critic, and reviewer pool lanes, never as an agentic runner. Auth comes from `$OPENROUTER_API_KEY` or `~/.config/openrouter/key`; preflight verifies the key against OpenRouter's key endpoint. OpenRouter's unified reasoning parameter tops out at `high`, so `xhigh` and `max` clamp to `high` (the lane records the requested and applied efforts in its envelope). Receipts carry provider-reported model, tokens, and cost like any other lane.
+
 ## External lanes
 
 The launcher lives at `skills/poteto-mode/scripts/runner/pstack-runner` under the installed plugin. The parent writes the complete candidate prompt to a unique file, creates a unique output directory or worktree, and invokes the launcher directly. Do not put another agent in front of it.
@@ -48,7 +50,7 @@ The launcher lives at `skills/poteto-mode/scripts/runner/pstack-runner` under th
 ```text
 pstack-runner \
   --parent <claude|codex> \
-  --provider <claude|codex|grok> \
+  --provider <claude|codex|grok|openrouter> \
   --model <real CLI model> \
   --effort <low|medium|high|xhigh|max> \
   --mode <read-only|isolated-write> \

@@ -369,6 +369,8 @@ function preflightPassed(provider: Provider, model: string, result: ProcessResul
       return /logged in/i.test(combined);
     case "grok":
       return /logged in/i.test(combined) && combined.includes(model);
+    case "openrouter":
+      return /logged in/i.test(combined);
   }
 }
 
@@ -485,6 +487,11 @@ export function validateOptions(options: RunnerOptions): void {
   if (options.parent === options.provider) {
     throw new UsageError(
       `provider ${options.provider} is native to parent ${options.parent}; use the parent subagent primitive`
+    );
+  }
+  if (options.provider === "openrouter" && options.mode === "isolated-write") {
+    throw new UsageError(
+      "openrouter is a one-shot API lane with no tools; only read-only mode is supported"
     );
   }
   if (options.model.trim().length === 0) throw new UsageError("model must not be empty");

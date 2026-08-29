@@ -147,6 +147,28 @@ function parseCodex(stdout: string): ParsedOutput {
   };
 }
 
+function parseOpenrouter(stdout: string): ParsedOutput {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    throw new Error("openrouter lane did not emit valid JSON");
+  }
+  const value = object(raw);
+  if (value === null || value.kind !== "openrouter-lane.v1") {
+    throw new Error("openrouter lane emitted an unexpected envelope");
+  }
+  const text = nullableString(value.result);
+  if (text === null) throw new Error("openrouter lane result did not contain final text");
+  return {
+    text,
+    reportedModel: nullableString(value.model),
+    sessionId: null,
+    usage: normalizedUsage(value.usage),
+    costUsd: finiteNumber(value.cost_usd) ?? null,
+  };
+}
+
 export function parseProviderOutput(
   provider: Provider,
   stdout: string,
@@ -160,6 +182,8 @@ export function parseProviderOutput(
       return parseCodex(stdout);
     case "grok":
       return parseGrok(stdout, requestedModel);
+    case "openrouter":
+      return parseOpenrouter(stdout);
   }
 }
 

@@ -11,6 +11,8 @@ export interface CommandSpec {
   readonly stdin: "prompt" | "none";
 }
 
+const OPENROUTER_LANE = new URL("./openrouter-lane.ts", import.meta.url).pathname;
+
 export function preflightCommand(provider: Provider): CommandSpec {
   switch (provider) {
     case "claude":
@@ -27,6 +29,12 @@ export function preflightCommand(provider: Provider): CommandSpec {
       };
     case "grok":
       return { command: "grok", args: ["models"], stdin: "none" };
+    case "openrouter":
+      return {
+        command: "bun",
+        args: [OPENROUTER_LANE, "--preflight"],
+        stdin: "none",
+      };
   }
 }
 
@@ -115,6 +123,21 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           "memories",
           "--json",
           "-",
+        ],
+        stdin: "prompt",
+      };
+    case "openrouter":
+      // API lane: no CLI, no tools, read-only by construction. The child is our
+      // own one-shot script so the runner's spawn/timeout/receipt machinery
+      // applies unchanged.
+      return {
+        command: "bun",
+        args: [
+          OPENROUTER_LANE,
+          "--model",
+          options.model,
+          "--effort",
+          options.effort,
         ],
         stdin: "prompt",
       };

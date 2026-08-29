@@ -178,3 +178,20 @@ describe("invocationCommand", () => {
     }
   });
 });
+
+describe("openrouter lane", () => {
+  it("routes the invocation through the bundled one-shot lane script", () => {
+    const spec = invocationCommand(
+      options({ provider: "openrouter", model: "x-ai/grok-4.6", effort: "high" })
+    );
+    expect(spec.command).toBe("bun");
+    expect(spec.stdin).toBe("prompt");
+    expect(spec.args[0]).toEndWith("openrouter-lane.ts");
+    expect(spec.args.slice(1)).toEqual([
+      "--model",
+      "x-ai/grok-4.6",
+      "--effort",
+      "high",
+    ]);
+  });
+});

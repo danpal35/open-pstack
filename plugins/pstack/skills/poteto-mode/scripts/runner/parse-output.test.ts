@@ -124,3 +124,35 @@ describe("parseProviderOutput", () => {
     ).toThrow("final agent message");
   });
 });
+
+describe("openrouter envelope", () => {
+  it("extracts text, reported model, usage, and cost from the lane envelope", () => {
+    const parsed = parseProviderOutput(
+      "openrouter",
+      JSON.stringify({
+        kind: "openrouter-lane.v1",
+        result: "OPENROUTER_OK",
+        model: "x-ai/grok-4.6",
+        requested_effort: "xhigh",
+        applied_effort: "high",
+        usage: { input_tokens: 221, output_tokens: 147, reasoning_tokens: 137, total_tokens: 368 },
+        cost_usd: 0.001132,
+      }),
+      "",
+      "x-ai/grok-4.6"
+    );
+    expect(parsed).toMatchObject({
+      text: "OPENROUTER_OK",
+      reportedModel: "x-ai/grok-4.6",
+      sessionId: null,
+      usage: { inputTokens: 221, outputTokens: 147, reasoningTokens: 137, totalTokens: 368 },
+      costUsd: 0.001132,
+    });
+  });
+
+  it("rejects output that is not the lane envelope", () => {
+    expect(() =>
+      parseProviderOutput("openrouter", JSON.stringify({ result: "x" }), "", "m")
+    ).toThrow("unexpected envelope");
+  });
+});
