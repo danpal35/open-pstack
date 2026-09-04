@@ -1,14 +1,19 @@
 import {
+  chmodSync,
   closeSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readFileSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { invocationCommand, preflightCommand, type CommandSpec } from "./commands.ts";
 import { parseProviderOutput, reportedModelMatches } from "./parse-output.ts";
 import type {
@@ -142,6 +147,106 @@ export function childEnvironment(
   return result;
 }
 
+interface PreparedChildEnvironment {
+  readonly env: NodeJS.ProcessEnv;
+  dispose(): void;
+}
+
+function sourceGrokHome(source: NodeJS.ProcessEnv): string | null {
+  if (source.GROK_HOME !== undefined && source.GROK_HOME.length > 0) {
+    return source.GROK_HOME;
+  }
+  return source.HOME === undefined || source.HOME.length === 0
+    ? null
+    : join(source.HOME, ".grok");
+}
+
+function grokIsolationConfig(shellHome: string | undefined): string {
+  const lines = [
+    "[cli]",
+    "use_leader = false",
+    "auto_update = false",
+    "",
+    "[compat.claude]",
+    "agents = false",
+    "hooks = false",
+    "mcps = false",
+    "rules = false",
+    "skills = false",
+    "",
+    "[compat.cursor]",
+    "agents = false",
+    "hooks = false",
+    "mcps = false",
+    "rules = false",
+    "skills = false",
+    "",
+    "[compat.codex]",
+    "hooks = false",
+    "skills = false",
+  ];
+  if (shellHome !== undefined && shellHome.length > 0) {
+    lines.push(
+      "",
+      "[shell_environment_policy.set]",
+      `HOME = ${JSON.stringify(shellHome)}`
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function prepareChildEnvironment(
+  provider: Provider,
+  source: NodeJS.ProcessEnv = process.env
+): PreparedChildEnvironment {
+  const env = childEnvironment(provider, source);
+  if (provider !== "grok") return { env, dispose() {} };
+
+  const isolatedHome = mkdtempSync(join(tmpdir(), "pstack-grok-home-"));
+  try {
+    chmodSync(isolatedHome, 0o700);
+    const originalHome = sourceGrokHome(source);
+    const originalAuth = originalHome === null ? null : join(originalHome, "auth.json");
+    if (originalAuth !== null && existsSync(originalAuth)) {
+      const isolatedAuth = join(isolatedHome, "auth.json");
+      copyFileSync(originalAuth, isolatedAuth);
+      chmodSync(isolatedAuth, 0o600);
+    }
+    const isolatedConfig = join(isolatedHome, "config.toml");
+    writeFileSync(isolatedConfig, grokIsolationConfig(source.HOME), { mode: 0o600 });
+
+    env.HOME = isolatedHome;
+    env.GROK_HOME = isolatedHome;
+    delete env.GROK_CONFIG;
+    delete env.GROK_CONFIG_PATH;
+    env.GROK_CLAUDE_AGENTS_ENABLED = "0";
+    env.GROK_CLAUDE_HOOKS_ENABLED = "0";
+    env.GROK_CLAUDE_MCPS_ENABLED = "0";
+    env.GROK_CLAUDE_RULES_ENABLED = "0";
+    env.GROK_CLAUDE_SKILLS_ENABLED = "0";
+    env.GROK_CURSOR_AGENTS_ENABLED = "0";
+    env.GROK_CURSOR_HOOKS_ENABLED = "0";
+    env.GROK_CURSOR_MCPS_ENABLED = "0";
+    env.GROK_CURSOR_RULES_ENABLED = "0";
+    env.GROK_CURSOR_SKILLS_ENABLED = "0";
+    env.GROK_CODEX_HOOKS_ENABLED = "0";
+    env.GROK_CODEX_MCPS_ENABLED = "0";
+    env.GROK_CODEX_SKILLS_ENABLED = "0";
+    env.GROK_MANAGED_CONFIG = "0";
+    env.GROK_MANAGED_MCPS_ENABLED = "0";
+
+    return {
+      env,
+      dispose() {
+        rmSync(isolatedHome, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    rmSync(isolatedHome, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function terminate(
   child: Bun.Subprocess,
   signal: CancellationSignal = "SIGTERM"
@@ -172,7 +277,10 @@ interface StreamCapture {
   cancel(): Promise<void>;
 }
 
-function captureStream(stream: ReadableStream<Uint8Array>): StreamCapture {
+function captureStream(
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (bytes: number) => void
+): StreamCapture {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let text = "";
@@ -183,6 +291,7 @@ function captureStream(stream: ReadableStream<Uint8Array>): StreamCapture {
       while (true) {
         const next = await reader.read();
         if (next.done) break;
+        onChunk(next.value.byteLength);
         text += decoder.decode(next.value, { stream: true });
       }
       text += decoder.decode();
@@ -214,6 +323,16 @@ type ProcessEvent =
   | { readonly kind: "cancelled"; readonly signal: CancellationSignal }
   | { readonly kind: "timed-out" };
 
+interface RunProgress {
+  readonly heartbeatMs: number;
+  emit(value: string): void;
+}
+
+const DEFAULT_RUN_PROGRESS: RunProgress = {
+  heartbeatMs: 30_000,
+  emit: (value) => process.stderr.write(value),
+};
+
 async function runProcess(
   executable: string,
   spec: CommandSpec,
@@ -221,8 +340,11 @@ async function runProcess(
   env: NodeJS.ProcessEnv,
   prompt: string,
   deadlineAt: number | null,
-  cancellation: RunCancellation
+  cancellation: RunCancellation,
+  progressLabel: string,
+  progress: RunProgress
 ): Promise<ProcessResult> {
+  const processStarted = Date.now();
   const child = Bun.spawn([executable, ...spec.args], {
     cwd,
     env,
@@ -231,8 +353,21 @@ async function runProcess(
     stderr: "pipe",
   });
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
-  const stdoutCapture = captureStream(child.stdout);
-  const stderrCapture = captureStream(child.stderr);
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  const stdoutCapture = captureStream(child.stdout, (bytes) => {
+    stdoutBytes += bytes;
+  });
+  const stderrCapture = captureStream(child.stderr, (bytes) => {
+    stderrBytes += bytes;
+  });
+  const heartbeatTimer = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - processStarted) / 1_000);
+    progress.emit(
+      `[pstack-runner] ${progressLabel} still running after ${elapsedSeconds}s; `
+      + `received ${stdoutBytes} stdout bytes and ${stderrBytes} stderr bytes\n`
+    );
+  }, progress.heartbeatMs);
   const streams = Promise.all([stdoutCapture.result, stderrCapture.result]);
   const exited = child.exited.then((exitCode): ProcessEvent => ({
     kind: "exited",
@@ -317,6 +452,7 @@ async function runProcess(
     await Promise.allSettled([stdoutCapture.result, stderrCapture.result]);
     throw error;
   } finally {
+    clearInterval(heartbeatTimer);
     if (deadlineTimer !== null) clearTimeout(deadlineTimer);
   }
 }
@@ -528,11 +664,12 @@ async function executeLane(
   deadlineAt: number | null,
   invocation: CommandSpec,
   preflight: CommandSpec,
-  progress: LaneProgress
+  progress: LaneProgress,
+  env: NodeJS.ProcessEnv,
+  runProgress: RunProgress
 ): Promise<RunResult> {
   const startedAt = new Date(started).toISOString();
   const prompt = readFileSync(options.promptPath, "utf8");
-  const env = childEnvironment(options.provider);
   const executable = Bun.which(invocation.command, {
     PATH: env.PATH,
     cwd: options.cwd,
@@ -623,7 +760,9 @@ async function executeLane(
     env,
     "",
     deadlineAt,
-    cancellation
+    cancellation,
+    `${options.provider} preflight`,
+    runProgress
   );
   let rawPreflightEvidence = evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`);
   let passed = preflightPassed(options.provider, options.model, preflightResult);
@@ -667,7 +806,9 @@ async function executeLane(
       env,
       "",
       deadlineAt,
-      cancellation
+      cancellation,
+      `${options.provider} preflight retry`,
+      runProgress
     );
     rawPreflightEvidence = evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`);
     passed = preflightPassed(options.provider, options.model, preflightResult);
@@ -749,7 +890,9 @@ async function executeLane(
     env,
     prompt,
     deadlineAt,
-    cancellation
+    cancellation,
+    `${options.provider} model`,
+    runProgress
   );
   const completed = Date.now();
   const base = {
@@ -848,9 +991,13 @@ async function executeLane(
 
 export async function runLane(
   options: RunnerOptions,
-  started: number = Date.now()
+  started: number = Date.now(),
+  runProgress: RunProgress = DEFAULT_RUN_PROGRESS
 ): Promise<RunResult> {
   validateOptions(options);
+  if (!Number.isFinite(runProgress.heartbeatMs) || runProgress.heartbeatMs <= 0) {
+    throw new UsageError("heartbeat interval must be greater than zero");
+  }
   const deadlineAt = options.timeoutMs === null ? null : started + options.timeoutMs;
   const invocation = invocationCommand(options);
   const preflight = preflightCommand(options.provider);
@@ -864,9 +1011,11 @@ export async function runLane(
     argv: [invocation.command, ...invocation.args],
   };
   const cancellation = installRunCancellation();
+  let child: PreparedChildEnvironment | null = null;
   try {
     reserveOutputs(options);
     try {
+      child = prepareChildEnvironment(options.provider);
       return await executeLane(
         options,
         cancellation,
@@ -874,7 +1023,9 @@ export async function runLane(
         deadlineAt,
         invocation,
         preflight,
-        progress
+        progress,
+        child.env,
+        runProgress
       );
     } catch (error) {
       const completed = Date.now();
@@ -918,6 +1069,7 @@ export async function runLane(
       return { exitCode: statusExitCode(status), receipt };
     }
   } finally {
+    child?.dispose();
     cancellation.dispose();
   }
 }

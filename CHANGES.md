@@ -2,6 +2,12 @@
 
 This port applies the Cursor → Claude Code substitutions in skill bodies. Earlier drafts left them flagged; this revision resolves them. A later pass added a Codex build that shares the same skills; see [Codex port](#codex-port) below.
 
+## Unreleased
+
+Grok external lanes now run with temporary `$HOME` and `$GROK_HOME` directories containing only a mode-0600 copy of the existing authentication file and a runner-owned isolation config. The runner removes inherited Grok config overlays, disables managed-config sync plus compatibility and managed MCP discovery, and deletes the temporary home after success, failure, timeout, or cancellation. The real home is restored only for terminal-tool subprocesses. This keeps user MCP servers, plugins, skills, rules, and agent files out of Grok startup without moving auth into the prompt or weakening the Grok sandbox.
+
+The runner now emits one compact liveness line every 30 seconds while a provider preflight or model process remains active. Each line reports the phase, elapsed time, and captured stdout and stderr byte counts. Long Grok implementation turns no longer look dead while the runner buffers their final structured result. This adds visibility, not a timeout or retry.
+
 ## 1.2.0 adds verified multi-PR plans, earlier runtime diagnostics, and shared review-bot triage
 
 Plans with several stages now use one checklist instead of an overview and separate files for each stage. It has one ordered section for every pull request and keeps all ten ways of testing the real product, unit tests, live and performance proof, checks for how changes work together, merge rules, and supporting details in one place. A Node-based checker with no extra dependencies rejects missing or out-of-order sections, fake screenshots, empty definitions of success, incomplete performance proof, incorrectly written review checks, unsupported punctuation, and incorrect command use. Claude Code and Codex use the same installed skill and checker through their existing parent-controlled setup. If a provider fails, it is identified by name and treated as a dropout. No backup provider or hidden time limit was added.

@@ -19,9 +19,10 @@ import type { Provider, RunnerOptions, RunnerReceipt } from "./types.ts";
 let scratch = "";
 let bin = "";
 let previousPath: string | undefined;
+let previousGrokHome: string | undefined;
 
 const fake = `#!/usr/bin/env bun
-import { appendFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 const name = process.argv[1].split("/").at(-1);
 const isPreflight =
@@ -29,6 +30,33 @@ const isPreflight =
   (name === "codex" && args[0] === "login") ||
   (name === "grok" && args[0] === "models");
 const stage = isPreflight ? "preflight" : "model";
+if (name === "grok" && process.env.FAKE_GROK_ENV_LOG_PATH) {
+  const grokHome = process.env.GROK_HOME ?? "";
+  const authPath = grokHome + "/auth.json";
+  const configPath = grokHome + "/config.toml";
+  appendFileSync(process.env.FAKE_GROK_ENV_LOG_PATH, JSON.stringify({
+    stage,
+    home: process.env.HOME,
+    grokHome,
+    auth: existsSync(authPath) ? readFileSync(authPath, "utf8") : null,
+    config: existsSync(configPath) ? readFileSync(configPath, "utf8") : null,
+    claudeAgents: process.env.GROK_CLAUDE_AGENTS_ENABLED,
+    claudeHooks: process.env.GROK_CLAUDE_HOOKS_ENABLED,
+    claudeMcps: process.env.GROK_CLAUDE_MCPS_ENABLED,
+    claudeRules: process.env.GROK_CLAUDE_RULES_ENABLED,
+    claudeSkills: process.env.GROK_CLAUDE_SKILLS_ENABLED,
+    cursorAgents: process.env.GROK_CURSOR_AGENTS_ENABLED,
+    cursorHooks: process.env.GROK_CURSOR_HOOKS_ENABLED,
+    cursorMcps: process.env.GROK_CURSOR_MCPS_ENABLED,
+    cursorRules: process.env.GROK_CURSOR_RULES_ENABLED,
+    cursorSkills: process.env.GROK_CURSOR_SKILLS_ENABLED,
+    codexHooks: process.env.GROK_CODEX_HOOKS_ENABLED,
+    codexMcps: process.env.GROK_CODEX_MCPS_ENABLED,
+    codexSkills: process.env.GROK_CODEX_SKILLS_ENABLED,
+    managedMcps: process.env.GROK_MANAGED_MCPS_ENABLED,
+    managedConfig: process.env.GROK_MANAGED_CONFIG,
+  }) + "\\n");
+}
 const startedPath = isPreflight
   ? process.env.FAKE_PREFLIGHT_STARTED_PATH
   : process.env.FAKE_MODEL_STARTED_PATH;
@@ -218,6 +246,7 @@ beforeEach(() => {
   writeFileSync(join(scratch, "prompt.md"), "Return the marker.");
   for (const name of ["claude", "codex", "grok"]) makeExecutable(name);
   previousPath = process.env.PATH;
+  previousGrokHome = process.env.GROK_HOME;
   process.env.PATH = `${bin}:${dirname(process.execPath)}:${previousPath ?? ""}`;
   delete process.env.FAKE_TIMEOUT;
   delete process.env.FAKE_INVALID_MODEL;
@@ -239,10 +268,13 @@ beforeEach(() => {
   delete process.env.FAKE_DESCENDANT_HOLDS_PIPES_MS;
   delete process.env.FAKE_DESCENDANT_PID_PATH;
   delete process.env.FAKE_SELF_SIGNAL;
+  delete process.env.FAKE_GROK_ENV_LOG_PATH;
 });
 
 afterEach(() => {
   process.env.PATH = previousPath;
+  if (previousGrokHome === undefined) delete process.env.GROK_HOME;
+  else process.env.GROK_HOME = previousGrokHome;
   delete process.env.FAKE_TIMEOUT;
   delete process.env.FAKE_INVALID_MODEL;
   delete process.env.FAKE_CANCEL;
@@ -263,6 +295,7 @@ afterEach(() => {
   delete process.env.FAKE_DESCENDANT_HOLDS_PIPES_MS;
   delete process.env.FAKE_DESCENDANT_PID_PATH;
   delete process.env.FAKE_SELF_SIGNAL;
+  delete process.env.FAKE_GROK_ENV_LOG_PATH;
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -489,6 +522,22 @@ describe("runLane", () => {
       signal: null,
     });
     expect(receipt(input.receiptPath).elapsedMs).toBeGreaterThanOrEqual(400);
+  });
+
+  it("reports liveness while a model is still running", async () => {
+    process.env.FAKE_MODEL_DELAY_MS = "90";
+    const updates: string[] = [];
+    const input = options("grok", "grok-liveness");
+
+    const result = await runLane(input, Date.now(), {
+      heartbeatMs: 20,
+      emit: (value) => updates.push(value),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(updates.some((value) => value.includes("grok model still running"))).toBe(
+      true
+    );
   });
 
   it("keeps a very long explicit deadline without timer overflow", async () => {
@@ -808,6 +857,51 @@ describe("runLane", () => {
     expect(first.outputPath).not.toBe(second.outputPath);
     expect(receipt(first.receiptPath).sessionId).toBe("g1");
     expect(receipt(second.receiptPath).sessionId).toBe("g1");
+  });
+
+  it("runs Grok preflight and inference with copied auth in an isolated home", async () => {
+    const sourceHome = join(scratch, "source-grok-home");
+    mkdirSync(sourceHome);
+    writeFileSync(join(sourceHome, "auth.json"), "test-auth");
+    const envLog = join(scratch, "grok-env.jsonl");
+    process.env.GROK_HOME = sourceHome;
+    process.env.FAKE_GROK_ENV_LOG_PATH = envLog;
+
+    const input = options("grok", "grok-isolated-home");
+    const result = await runLane(input);
+    const records = readFileSync(envLog, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, string>);
+
+    expect(result.exitCode).toBe(0);
+    expect(records.map(({ stage }) => stage)).toEqual(["preflight", "model"]);
+    expect(new Set(records.map(({ grokHome }) => grokHome)).size).toBe(1);
+    expect(records[0]?.grokHome).not.toBe(sourceHome);
+    expect(records[0]?.grokHome).toStartWith(join(tmpdir(), "pstack-grok-home-"));
+    expect(records.every(({ home, grokHome }) => home === grokHome)).toBe(true);
+    expect(records.every(({ auth }) => auth === "test-auth")).toBe(true);
+    expect(
+      records.every(({ config }) =>
+        config?.includes(`HOME = ${JSON.stringify(process.env.HOME)}`)
+      )
+    ).toBe(true);
+    expect(records.every(({ claudeAgents }) => claudeAgents === "0")).toBe(true);
+    expect(records.every(({ claudeHooks }) => claudeHooks === "0")).toBe(true);
+    expect(records.every(({ claudeMcps }) => claudeMcps === "0")).toBe(true);
+    expect(records.every(({ claudeRules }) => claudeRules === "0")).toBe(true);
+    expect(records.every(({ claudeSkills }) => claudeSkills === "0")).toBe(true);
+    expect(records.every(({ cursorAgents }) => cursorAgents === "0")).toBe(true);
+    expect(records.every(({ cursorHooks }) => cursorHooks === "0")).toBe(true);
+    expect(records.every(({ cursorMcps }) => cursorMcps === "0")).toBe(true);
+    expect(records.every(({ cursorRules }) => cursorRules === "0")).toBe(true);
+    expect(records.every(({ cursorSkills }) => cursorSkills === "0")).toBe(true);
+    expect(records.every(({ codexHooks }) => codexHooks === "0")).toBe(true);
+    expect(records.every(({ codexMcps }) => codexMcps === "0")).toBe(true);
+    expect(records.every(({ codexSkills }) => codexSkills === "0")).toBe(true);
+    expect(records.every(({ managedMcps }) => managedMcps === "0")).toBe(true);
+    expect(records.every(({ managedConfig }) => managedConfig === "0")).toBe(true);
+    expect(existsSync(records[0]?.grokHome ?? "")).toBe(false);
   });
 
   it("refuses a second writer for an already-reserved path", async () => {
