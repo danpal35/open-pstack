@@ -1,11 +1,11 @@
 ---
 name: setup-pstack
-description: Configure pstack's provider-qualified models, per-family requested effort, and parent-owned routes per role. Verifies native and external Claude, Codex, and Grok lanes before writing the override sheet. Use for /setup-pstack, "configure pstack models", or changing pstack's model choices.
+description: Configure pstack model assignments and verify their execution routes in Claude Code, Codex, or Grok. Use for /setup-pstack, "configure pstack models", or swapping models such as Terra and Grok in named roles.
 ---
 
 # Setup pstack
 
-Configure one portable model sheet for the current parent harness. Read [`provider-dispatch.md`](../poteto-mode/references/provider-dispatch.md) before probing or writing anything. Its model matrix, descriptor grammar, and route table are the contract. Choose one requested effort per matrix family. Do not add a second configuration file, a runtime resolver, or a weaker-model fallback.
+Configure one model sheet for the current parent harness. Read [`provider-dispatch.md`](../poteto-mode/references/provider-dispatch.md) before probing or writing anything. Its descriptor grammar and route table are the contract. Use **Change named roles** for a scoped edit to an existing sheet. The numbered full-setup flow below configures the first-run matrix families with one requested effort per family. Do not add a second source of truth, a runtime resolver, or a weaker-model fallback.
 
 Claude Code writes `~/.claude/pstack-models.md` and loads it from `~/.claude/CLAUDE.md` with:
 
@@ -23,9 +23,22 @@ Codex writes `~/.codex/pstack-models.md`. Codex has no `@` include, so mirror th
 
 ## Steps
 
+## Change named roles
+
+For a request such as "use Grok instead of Terra for features" or "swap Terra and Grok in the reviewer pool", use this path instead of the full matrix setup below. It supports user-selected models beyond the default matrix and does not require probing or enabling unrelated providers.
+
+1. Establish the actual parent: `claude`, `codex`, or `grok`. Read its existing sheet and operator restrictions. Grok uses `~/.grok/pstack-models.md` and [grok-tools.md](../poteto-mode/references/grok-tools.md). If the sheet does not exist, use the full setup flow or an explicitly user-selected existing sheet as the seed; do not silently borrow another parent's configuration.
+2. Resolve the named roles and exact replacement descriptors. Preserve every unrelated row, lane order, inline alias, and provider exclusion. For an existing model, keep its configured effort unless the request changes it. If that model occurs at multiple efforts and the role does not disambiguate, ask only for the missing effort. For an unconfigured model, confirm the proposed effort if the user did not specify it. Examples are `codex:gpt-5.6-terra@medium` and `grok:grok-4.6@high`; they are not interchangeable effort labels.
+3. Probe each distinct destination model/effort pair for the changed roles, even when it already appears elsewhere in the sheet, through the route used by this parent, with a tiny read-only task and unique output/receipt paths. On Grok, every explicit descriptor uses the external runner with `--parent grok`, including `grok:*`. On Codex, Codex models use native `spawn_agent`. Check provider model availability and the completion evidence required by provider-dispatch. A failed probe writes nothing. Keep work needing the parent's MCPs inline unless the chosen route supports those tools.
+4. Render only the requested edits. A row such as `feature, refactoring:` assigns both roles: if only feature changes, split it into `feature:` and `refactoring:` while preserving refactoring's descriptor. Reject duplicate semantic roles before editing. When swapping two configured models, move each model with its effort and preserve all other panel entries. Show the before/after assignments. A clear request to make these changes is authorization to write; ask only if the intended assignments are ambiguous.
+5. Snapshot the sheet and parent integration. Claude uses its existing include. Codex and Grok mirror the exact sheet bytes between `<!-- pstack:models:begin -->` and `<!-- pstack:models:end -->` in their global `AGENTS.md`. Preserve all surrounding instructions. If neither marker exists, append one bounded block. If only one marker exists, or markers are duplicated or reversed, stop without writing. Read both files back, and restore both snapshots if either write or comparison fails. If the sheet is a symlink shared with another parent, disclose which parents would change and require a request covering them; do not silently overwrite the shared target.
+6. Report the effective assignments, configuration path, and successful probe evidence. Re-read the sheet before the next dispatch so an old session mirror cannot override the edit. Plugin updates must not rewrite user model sheets.
+
+## Full setup
+
 ### 1. Establish the parent
 
-Use the harness and tool surface running this skill: Claude Code or Codex. Environment markers may corroborate that top-level answer, but do not launch a child and ask it to detect where it came from. Record the parent because the same descriptor takes a different route in each harness.
+Use the harness and tool surface running this skill: Claude Code, Codex, or Grok. A T3 conversation using Grok has parent `grok`; Claude compatibility discovery does not change it. Environment markers may corroborate that top-level answer, but do not launch a child and ask it to detect where it came from. Record the parent because the same descriptor takes a different route in each harness. Grok writes `~/.grok/pstack-models.md` and mirrors it in `~/.grok/AGENTS.md` using the same bounded block as Codex.
 
 ### 2. Load current state
 
@@ -47,14 +60,14 @@ Ask exactly four effort questions, one each for Fable, Sol, Grok, and Opus. Name
 
 Probe only the four selected `provider:model@effort` pairs. Run one probe per family, even when two families share a provider. Do not enumerate or offer older models as substitutes. A failed probe writes nothing: report the failing pair and provider, stop, and keep the active sheet plus parent integration bytes unchanged. A failed first run creates neither artifact.
 
-| Family | Pair source | Claude parent route | Codex parent route | Availability proof |
-|---|---|---|---|---|
-| Fable | Fable matrix row + selected effort | native Agent `pstack-fable-<effort>` | Claude CLI | native one-turn probe or `claude auth status --json` plus one-turn probe |
-| Sol | Sol matrix row + selected effort | `codex exec` | native `spawn_agent` | `codex login status` plus one-turn probe or native one-turn probe |
-| Grok | Grok matrix row + selected effort | Grok CLI | Grok CLI | `grok models` must list the requested model; one-turn probe |
-| Opus | Opus matrix row + selected effort | native Agent `pstack-opus-<effort>` | Claude CLI | native one-turn probe or `claude auth status --json` plus one-turn probe |
+| Family | Pair source | Claude parent route | Codex parent route | Grok parent route | Availability proof |
+|---|---|---|---|---|---|
+| Fable | Fable matrix row + selected effort | native Agent `pstack-fable-<effort>` | Claude CLI | Claude CLI | native one-turn probe or `claude auth status --json` plus one-turn probe |
+| Sol | Sol matrix row + selected effort | `codex exec` | native `spawn_agent` | Codex CLI | `codex login status` plus one-turn probe or native one-turn probe |
+| Grok | Grok matrix row + selected effort | Grok CLI | Grok CLI | Grok CLI | `grok models` must list the requested model; one-turn probe |
+| Opus | Opus matrix row + selected effort | native Agent `pstack-opus-<effort>` | Claude CLI | Claude CLI | native one-turn probe or `claude auth status --json` plus one-turn probe |
 
-Use a tiny read-only probe that returns a unique marker. A login-status command alone proves credentials, not that the requested model and effort flags run. Record native and external results separately. Never call the external launcher for the parent's own provider. On a Claude parent, the Fable and Opus probes are one-turn runs of the mapped `pstack-<stem>-<effort>` agent. On a Codex parent, the Sol probe is native `spawn_agent` with the selected `reasoning_effort`. Every other pair uses the external runner with the selected effort flag.
+Use a tiny read-only probe that returns a unique marker. A login-status command alone proves credentials, not that the requested model and effort flags run. Record native and external results separately. Claude and Codex never call the external launcher for their own provider. On a Claude parent, the Fable and Opus probes are one-turn runs of the mapped `pstack-<stem>-<effort>` agent. On a Codex parent, the Sol probe is native `spawn_agent` with the selected `reasoning_effort`. Every other pair uses the external runner with the selected effort flag. On Grok, all four pairs use the runner with `--parent grok`.
 
 Receipts and native transcripts prove the requested effort and the route. They do not prove a provider's hidden applied reasoning depth. There is no implicit timeout, weaker-model fallback, same-provider external fallback, or second mutable configuration source.
 
@@ -106,7 +119,7 @@ interrogate reviewers: claude:claude-fable-5@max, codex:gpt-5.6-sol@max, grok:gr
 
 ### 8. Wire it in
 
-Render the parent integration in memory before either write. On Claude, the integration is the single `@~/.claude/pstack-models.md` include in `~/.claude/CLAUDE.md`. On Codex, it is the exact sheet bytes between one `<!-- pstack:models:begin -->` and `<!-- pstack:models:end -->` pair in `~/.codex/AGENTS.md`. Replace that whole bounded block on a rerun. Insert one block at the end on first run. If either marker is missing, duplicated, or reversed, stop and report inconsistent state instead of guessing a boundary.
+Render the parent integration in memory before either write. On Claude, the integration is the single `@~/.claude/pstack-models.md` include in `~/.claude/CLAUDE.md`. On Codex or Grok, it is the exact sheet bytes between one `<!-- pstack:models:begin -->` and `<!-- pstack:models:end -->` pair in `~/.codex/AGENTS.md` or `~/.grok/AGENTS.md`, respectively. Replace that whole bounded block on a rerun. Insert one block at the end on first run. If either marker is missing, duplicated, or reversed, stop and report inconsistent state instead of guessing a boundary.
 
 Snapshot every target's current bytes. Write the sheet and parent integration only after all four probes pass and the operator confirms. Read both targets back and compare them with the in-memory render. If either write or readback fails, restore every snapshot and report the failure. An unchanged rerun must produce byte-identical sheet and integration content after normalization.
 

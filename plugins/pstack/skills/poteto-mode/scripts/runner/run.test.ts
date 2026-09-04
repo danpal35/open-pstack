@@ -144,7 +144,7 @@ if (name === "claude") {
   console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"CODEX_OK"}}));
   console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:20,cached_input_tokens:5,output_tokens:3,reasoning_output_tokens:1}}));
 } else {
-  console.log(JSON.stringify({text:"GROK_OK",stopReason:"end_turn",sessionId:"g1",usage:{input_tokens:30,output_tokens:4,total_tokens:34},total_cost_usd:0.02,modelUsage:{[model + "-build"]:{}}}));
+  console.log(JSON.stringify({text:"GROK_OK",stopReason:process.env.FAKE_GROK_STOP_REASON ?? "end_turn",sessionId:"g1",usage:{input_tokens:30,output_tokens:4,total_tokens:34},total_cost_usd:0.02,modelUsage:{[model + "-build"]:{}}}));
 }
 if (process.env.FAKE_MODEL_EXITING_PATH) {
   writeFileSync(process.env.FAKE_MODEL_EXITING_PATH, String(process.pid));
@@ -264,6 +264,7 @@ beforeEach(() => {
   delete process.env.FAKE_GROK_TRANSIENT_UNAUTH_PATH;
   delete process.env.FAKE_GROK_PREFLIGHT_LOG_PATH;
   delete process.env.FAKE_GROK_MISSING_MODEL;
+  delete process.env.FAKE_GROK_STOP_REASON;
   delete process.env.FAKE_DESCENDANT_HOLDS_PIPES_MS;
   delete process.env.FAKE_DESCENDANT_PID_PATH;
   delete process.env.FAKE_SELF_SIGNAL;
@@ -291,6 +292,7 @@ afterEach(() => {
   delete process.env.FAKE_GROK_TRANSIENT_UNAUTH_PATH;
   delete process.env.FAKE_GROK_PREFLIGHT_LOG_PATH;
   delete process.env.FAKE_GROK_MISSING_MODEL;
+  delete process.env.FAKE_GROK_STOP_REASON;
   delete process.env.FAKE_DESCENDANT_HOLDS_PIPES_MS;
   delete process.env.FAKE_DESCENDANT_PID_PATH;
   delete process.env.FAKE_SELF_SIGNAL;
@@ -976,8 +978,29 @@ describe("runLane", () => {
     expect(receipt(retry.receiptPath).status).toBe("complete");
   });
 
-  it("rejects same-provider recursion", async () => {
-    const input = { ...options("claude"), parent: "claude" as const };
+  it("rejects Grok cancellation even when the CLI exits zero with partial text", async () => {
+    process.env.FAKE_GROK_STOP_REASON = "cancelled";
+    const input = { ...options("grok"), parent: "grok" as const };
+    const result = await runLane(input);
+    expect(result.exitCode).not.toBe(0);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      parent: "grok", provider: "grok", status: "malformed-output",
+    });
+    expect(existsSync(input.outputPath)).toBe(false);
+  });
+
+  it.each(["codex", "grok"] as const)("records the Grok parent for a %s worker", async (provider) => {
+    const input = { ...options(provider), parent: "grok" as const };
+    const result = await runLane(input);
+    expect(result.exitCode).toBe(0);
+    expect(receipt(input.receiptPath)).toMatchObject({
+      parent: "grok", provider, status: "complete",
+    });
+    expect(readFileSync(input.outputPath, "utf8").trim().length).toBeGreaterThan(0);
+  });
+
+  it.each(["claude", "codex"] as const)("keeps %s workers native to their own parent", async (provider) => {
+    const input = { ...options(provider), parent: provider };
     await expect(runLane(input)).rejects.toThrow("native to parent");
   });
 });

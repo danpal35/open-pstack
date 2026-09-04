@@ -13,12 +13,12 @@ import {
   UsageError,
 } from "./types.ts";
 
-const HELP = `Usage: pstack-runner --parent <claude|codex> --provider <claude|codex|grok|openrouter> \\
+const HELP = `Usage: pstack-runner --parent <claude|codex|grok> --provider <claude|codex|grok|openrouter> \\
   --model <slug> --effort <level> --mode <read-only|isolated-write> \\
   --prompt <file> --cwd <dir> --output <file> --receipt <file> [--timeout <seconds>]
 
-Runs exactly one external model lane. Same-provider calls are rejected; use the
-parent harness's native subagent primitive for those lanes. Output and receipt
+Runs exactly one external model lane. Claude and Codex use native subagents for
+their own provider; Grok parents use this runner for every explicit model. Output and receipt
 paths must not already exist. There is no implicit timeout. Pass --timeout only
 when the user or task supplies a real deadline; it is one end-to-end launcher
 deadline shared by setup, preflight, and model execution.

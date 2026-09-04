@@ -83,6 +83,9 @@ function parseGrok(stdout: string, requestedModel: string): ParsedOutput {
   }
   const result = object(raw);
   if (result === null) throw new Error("grok emitted a non-object result");
+  if (result.stopReason !== "end_turn") {
+    throw new Error(`Grok did not complete: ${nullableString(result.stopReason) ?? "missing stopReason"}`);
+  }
 
   const text = nullableString(result.text);
   if (text === null) throw new Error("grok result did not contain final text");

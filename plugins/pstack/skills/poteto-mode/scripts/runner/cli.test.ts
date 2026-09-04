@@ -27,6 +27,16 @@ function argv(extra: readonly string[] = []): string[] {
 }
 
 describe("runner CLI parsing", () => {
+  it.each(["codex", "grok"])("accepts a Grok parent with a %s worker", (provider) => {
+    const parsed = parseArgs(argv([
+      "--parent", "grok", "--provider", provider,
+      "--model", provider === "grok" ? "grok-4.6" : "gpt-5.6-terra",
+      "--effort", provider === "grok" ? "high" : "medium",
+    ]));
+    expect(parsed?.parent).toBe("grok");
+    expect(parsed?.provider).toBe(provider);
+  });
+
   it("does not invent a timeout", () => {
     expect(parseArgs(argv())?.timeoutMs).toBeNull();
   });

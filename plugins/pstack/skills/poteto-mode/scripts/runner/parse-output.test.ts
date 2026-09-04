@@ -102,6 +102,17 @@ describe("parseProviderOutput", () => {
     expect(parsed.reportedModel).toBe("claude-fable-5");
   });
 
+  it.each(["cancelled", "max_tokens", "max_turn_requests", undefined])(
+    "rejects partial Grok text when stopReason is %s",
+    (stopReason) => {
+      expect(() => parseProviderOutput("grok", JSON.stringify({
+        text: "I'll replace the stub and run the check.",
+        stopReason,
+        modelUsage: { "grok-4.6-build": {} },
+      }), "", "grok-4.6")).toThrow("Grok did not complete");
+    }
+  );
+
   it("rejects malformed or textless responses", () => {
     expect(() =>
       parseProviderOutput("claude", "not-json", "", "claude-fable-5")

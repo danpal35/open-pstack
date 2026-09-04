@@ -96,9 +96,11 @@ describe("invocationCommand", () => {
       "--reasoning-effort",
       "xhigh",
       "--permission-mode",
-      "plan",
+      "auto",
       "--sandbox",
       "read-only",
+      "--allow",
+      "Bash",
       "--tools",
       "read_file,grep,list_dir,run_terminal_cmd",
       "--disallowed-tools",
@@ -132,6 +134,9 @@ describe("invocationCommand", () => {
       ])
     );
     expect(grok.args).not.toContain("--always-approve");
+    expect(grok.args).toContain("Edit(/tmp/worktree/**)");
+    expect(invocationCommand(options({ provider: "grok" })).args)
+      .not.toContain("Edit(/tmp/worktree/**)");
 
     const claude = invocationCommand(
       options({ provider: "claude", model: "claude-fable-5", mode: "isolated-write" })

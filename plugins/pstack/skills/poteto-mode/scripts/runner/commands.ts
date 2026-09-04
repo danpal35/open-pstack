@@ -152,9 +152,14 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           "--reasoning-effort",
           options.effort,
           "--permission-mode",
-          permissionMode(options.mode),
+          options.mode === "read-only" ? "auto" : "acceptEdits",
           "--sandbox",
           grokSandbox(options.mode),
+          "--allow",
+          "Bash",
+          ...(options.mode === "isolated-write"
+            ? ["--allow", `Edit(${options.cwd}/**)`]
+            : []),
           "--tools",
           grokTools(options.mode),
           "--disallowed-tools",

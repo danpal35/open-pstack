@@ -2,6 +2,14 @@
 
 This port applies the Cursor → Claude Code substitutions in skill bodies. Earlier drafts left them flagged; this revision resolves them. A later pass added a Codex build that shares the same skills; see [Codex port](#codex-port) below.
 
+## 1.2.1-grok.1 adds Grok parent and role changes
+
+Headless Grok workers now receive explicit command approvals inside their selected sandbox and edit approvals scoped to a writer's directory. Read-only Grok workers explicitly use auto permission mode without importing the user's ambient approval settings. The parser rejects cancelled or incomplete JSON responses even when the CLI exits zero. This fixes live writers stopping at an edit prompt while returning a misleading complete receipt.
+
+Grok conversations, including T3's Grok provider, now dispatch explicit worker models with `--parent grok`. Both Grok and Codex workers retain their exact model and requested effort in receipts. Claude and Codex still use native workers for their own provider.
+
+The shared dispatch reference loads the current parent's model sheet, recognizes `orchestrator-inline`, and supports configured models beyond the first-run matrix. Setup's named-role path preserves unrelated assignments and operator restrictions, including when swapping Terra and Grok. Grok tool names and background supervision are documented in one mapping reference.
+
 ## Unreleased
 
 Grok external lanes now run with temporary `$HOME` and `$GROK_HOME` directories containing only a mode-0600 copy of the existing authentication file and a runner-owned isolation config. The runner removes inherited Grok config overlays, disables managed-config sync plus compatibility and managed MCP discovery, and deletes the temporary home after success, failure, timeout, or cancellation. The real home is restored only for terminal-tool subprocesses. This keeps user MCP servers, plugins, skills, rules, and agent files out of Grok startup without moving auth into the prompt or weakening the Grok sandbox.

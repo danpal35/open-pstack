@@ -64,6 +64,16 @@ Start a new Codex task after installation so it can discover the new skills and 
 
 ## Get started
 
+### Grok in T3
+
+Grok can run the main conversation as well as implementation, exploration, and review roles. Its Claude-compatible plugin discovery loads this same skill tree. For a session-local install, Grok also accepts `--plugin-dir` pointing at `plugins/pstack`.
+
+Use `~/.grok/pstack-models.md` for Grok's role assignments. A Grok parent dispatches all explicit model choices through `pstack-runner --parent grok`; Claude and Codex retain native workers for their own providers. See the [Grok tool mapping](plugins/pstack/skills/poteto-mode/references/grok-tools.md).
+
+To change an existing assignment, ask: "Use Grok 4.6 at high effort for features, preserving my other roles," or "Use Terra at medium effort for the reviewer role." [Setup pstack](plugins/pstack/skills/setup-pstack/SKILL.md) probes the requested model and changes only the named roles. A one-run override leaves the saved sheet alone. User model sheets live outside the plugin and are not replaced by plugin updates.
+
+Keep local integration fixes in your fork and install from that fork. Edits made only to a plugin cache may be replaced during an update. Merge upstream changes into the fork and rerun its checks before updating the installation.
+
 Lauren's original setup has two steps. Open Pstack keeps the same flow.
 
 ### 1. Set up the models

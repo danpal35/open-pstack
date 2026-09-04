@@ -21,14 +21,25 @@ The allowed effort universe is exactly `low`, `medium`, `high`, `xhigh`, `max`. 
 
 ## The parent owns the route
 
+Read the current parent's model sheet before dispatch: `~/.claude/pstack-models.md`, `~/.codex/pstack-models.md`, or `~/.grok/pstack-models.md`. T3 is the UI; the active provider determines the parent. A Grok conversation is parent `grok` even when it discovers pstack through Claude compatibility. Never pass `--parent claude` to work around a missing route.
+
+Use the current task's explicit assignment first, then the sheet, then the skill's default for an unconfigured role. Re-read the sheet after a requested role change. Preserve its operator restrictions, including excluded providers. Do not copy a different parent's sheet or reset customized roles automatically.
+
+The model matrix describes first-run defaults, not a closed list of user choices. Configured roles may use other models supported by their provider, including `codex:gpt-5.6-terra@medium` and `grok:grok-4.6@high`. Keep model and requested effort together when changing a role. Verify that exact pair; do not infer equivalent effort levels across providers. A role's access mode and workspace isolation stay the same when its model changes. Use setup-pstack's **Change named roles** path for persistent changes, or keep a one-run override in the task without editing the sheet.
+
 The top-level harness resolves the route once. A child receives an assigned provider, model, effort, access mode, prompt, working directory, and output path. A child never detects the harness, chooses a provider, or launches another model. Environment markers may corroborate the top-level harness before fan-out, but nested processes inherit parent markers and must not use them for routing.
 
 | Parent | `claude:*` | `codex:*` | `grok:*` | `openrouter:*` |
 |---|---|---|---|---|
 | Claude Code | native `Agent` | external runner | external runner | external runner |
 | Codex | external runner | native `spawn_agent` | external runner | external runner |
+| Grok / T3 Grok | external runner | external runner | external runner | external runner |
 
-`inherit-parent` and `auto` remain aliases. They use the parent's current model and effort through its native subagent primitive. In a panel they still consume one lane, but they reduce provider diversity; say so in the synthesis record.
+Grok parents use the runner even for `grok:*`, so model and effort are pinned in argv and each worker has a receipt. Grok's generic `task` tool is not the route for provider-qualified roles. The runner disables recursive agents inside each worker. This exception does not enable external same-provider calls from Claude or Codex.
+
+`inherit-parent` and `auto` remain aliases. They use the parent's current model and effort through its native subagent primitive when available, including Grok's `task` tool. If unavailable, record a dropout rather than relabeling the parent. In a panel they still consume one lane, but they reduce provider diversity; say so in the synthesis record.
+
+`orchestrator-inline` means the parent does the work in its own session and launches no worker. A descriptive parenthesis after this alias is explanatory text. Never turn an inline role into `inherit-parent` or `auto`. A task needing the parent's live MCP connections must stay inline unless the chosen worker route has those connections.
 
 ## Native lanes
 
@@ -37,7 +48,7 @@ Native dispatch avoids a second CLI startup and its base context.
 - Claude Code: match the descriptor's `(provider, model)` to one model-matrix row, then dispatch it through `pstack-<stem>-<effort>` using that row's Claude-native agent stem and the descriptor's effort. Those definitions pin model, effort, and `background: true`. `pstack-fable-max` and `pstack-opus-xhigh` remain in that set. Pass the complete task, grounding paths, access mode, and unique output location in the `Agent` prompt. Retain the task handle and drain it only after fan-out.
 - Codex: call `spawn_agent` with the descriptor's model and `reasoning_effort`, the complete task, grounding paths, access mode, and unique output location. Use an isolated worktree for a writer. Codex subagents already run concurrently.
 
-Do not send a same-provider descriptor to the external runner. It rejects that call because the native route is cheaper and already available.
+On Claude and Codex, do not send a same-provider descriptor to the external runner. It rejects that call because the native route is cheaper and already available. On Grok, use the external runner for every provider-qualified descriptor. Read [grok-tools.md](grok-tools.md) for tool names and background supervision.
 
 Beyond the matrix families, `pstack-sonnet-<effort>` agents ship for user-configured `claude:claude-sonnet-5@<effort>` descriptors — a fast, capable Claude lane for well-scoped building and verification fan-out. Sonnet is not part of the default panel quad; assign it per role in the setup sheet.
 
@@ -49,7 +60,7 @@ The launcher lives at `skills/poteto-mode/scripts/runner/pstack-runner` under th
 
 ```text
 pstack-runner \
-  --parent <claude|codex> \
+  --parent <claude|codex|grok> \
   --provider <claude|codex|grok|openrouter> \
   --model <real CLI model> \
   --effort <low|medium|high|xhigh|max> \
@@ -67,12 +78,15 @@ Grok authentication preflight has one bounded retry. If the first `grok models` 
 
 Grok headless calls use `--output-format json`. Do not switch them to `streaming-messages-json`: Grok CLI 1.0.13 can serialize a larger terminal result as a byte array on that path and stop before producing final assistant text. The single-result JSON path completes the same tool loop and still reports final text, model usage, session ID, and cost for the receipt.
 
+Headless Grok also needs explicit tool approvals: the runner allows `Bash` within the selected OS sandbox and, for isolated writers, `Edit(<cwd>/**)`. Grok read-only workers use permission mode `auto`; writers use `acceptEdits`, with explicit allow rules for both. In an isolated home, `plan` and `acceptEdits` can cancel read-only shell tests even with a Bash allow rule. Read-only workers retain the `read-only` OS sandbox and have no editing tools. Writers use the `workspace` sandbox. The runner does not use `--always-approve` or disable the sandbox. Grok 1.0.13 can otherwise return exit 0 and partial text after cancelling an edit approval. The parser requires `stopReason: end_turn`; a cancellation or missing stop reason is a dropout, not completion. Keep both `HOME` and `GROK_HOME` isolated. A normal home can hide this bug by importing Claude permission defaults, along with unwanted global instructions and plugins. A complete receipt proves the model turn finished; the parent must still inspect the artifact and run the task's checks.
+
 The parent tool sandbox still governs whether a subscribed child CLI can reach its credentials and network. Run setup's live probe from the actual parent profile. A blocked external CLI is a loud dropout, not a reason to elevate permissions or substitute a model silently.
 
 The parent invocation must itself be resumable background work:
 
 - Claude Code: call the launcher through a Bash tool invocation with `run_in_background: true` and retain its task ID. A foreground Bash tool call has an automatic ten-minute ceiling even when the runner's own timeout is longer. Shelling out with `&` and losing the task handle is not equivalent.
 - Codex: run the launcher in a persistent exec session that returns a session ID, then wait or poll that handle. Do not hold one foreground tool call open for the model's full runtime.
+- Grok / T3 Grok: use `run_terminal_cmd` with `is_background: true`, retain its task handle, and drain it with `get_task_output`. Cancel through `kill_task` if needed. Use the runner path in the installed skill this session loaded. Do not switch to the parent's generic `task` tool for explicit model choices.
 
 Start the background process, continue launching the other lanes, then drain their handles. Native and external lanes belong in the same fan-out phase.
 
