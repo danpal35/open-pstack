@@ -75,30 +75,22 @@ function parseClaude(stdout: string, requestedModel: string): ParsedOutput {
 }
 
 function parseGrok(stdout: string, requestedModel: string): ParsedOutput {
-  let result: JsonObject | null = null;
-  for (const line of stdout.split("\n")) {
-    if (line.trim().length === 0) continue;
-    let raw: unknown;
-    try {
-      raw = JSON.parse(line);
-    } catch {
-      throw new Error("grok emitted a non-JSON event");
-    }
-    const event = object(raw);
-    if (event?.type === "result") result = event;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stdout);
+  } catch {
+    throw new Error("grok did not emit valid JSON");
   }
+  const result = object(raw);
+  if (result === null) throw new Error("grok emitted a non-object result");
 
-  if (result === null) throw new Error("grok result did not contain a terminal event");
-  if (result.is_error === true || result.subtype !== "success") {
-    throw new Error("grok reported an error result");
-  }
-  const text = nullableString(result.result);
+  const text = nullableString(result.text);
   if (text === null) throw new Error("grok result did not contain final text");
 
   return {
     text,
     reportedModel: modelFromUsage(result.modelUsage, requestedModel),
-    sessionId: nullableString(result.session_id),
+    sessionId: nullableString(result.sessionId),
     usage: normalizedUsage(result.usage),
     costUsd: finiteNumber(result.total_cost_usd) ?? null,
   };

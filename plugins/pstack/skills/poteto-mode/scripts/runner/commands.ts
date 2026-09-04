@@ -160,7 +160,7 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           "--disallowed-tools",
           "Agent,search_tool,use_tool",
           "--output-format",
-          "streaming-messages-json",
+          "json",
           "--cwd",
           options.cwd,
           "--no-subagents",

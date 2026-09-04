@@ -144,8 +144,7 @@ if (name === "claude") {
   console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"CODEX_OK"}}));
   console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:20,cached_input_tokens:5,output_tokens:3,reasoning_output_tokens:1}}));
 } else {
-  console.log(JSON.stringify({type:"assistant",message:{content:[{type:"text",text:"progress"}]}}));
-  console.log(JSON.stringify({type:"result",subtype:"success",is_error:false,result:"GROK_OK",session_id:"g1",usage:{input_tokens:30,output_tokens:4,total_tokens:34},total_cost_usd:0.02,modelUsage:{[model + "-build"]:{}}}));
+  console.log(JSON.stringify({text:"GROK_OK",stopReason:"end_turn",sessionId:"g1",usage:{input_tokens:30,output_tokens:4,total_tokens:34},total_cost_usd:0.02,modelUsage:{[model + "-build"]:{}}}));
 }
 if (process.env.FAKE_MODEL_EXITING_PATH) {
   writeFileSync(process.env.FAKE_MODEL_EXITING_PATH, String(process.pid));

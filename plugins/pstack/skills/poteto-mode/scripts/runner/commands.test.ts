@@ -104,7 +104,7 @@ describe("invocationCommand", () => {
       "--disallowed-tools",
       "Agent,search_tool,use_tool",
       "--output-format",
-      "streaming-messages-json",
+      "json",
       "--cwd",
       "/tmp/worktree",
       "--no-subagents",

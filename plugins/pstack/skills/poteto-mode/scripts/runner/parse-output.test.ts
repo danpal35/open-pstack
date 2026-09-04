@@ -59,31 +59,23 @@ describe("parseProviderOutput", () => {
     });
   });
 
-  it("accepts Grok's reported build suffix", () => {
+  it("extracts Grok JSON after a terminal-tool turn", () => {
     const parsed = parseProviderOutput(
       "grok",
-      [
-        JSON.stringify({
-          type: "assistant",
-          message: { content: [{ type: "text", text: "progress" }] },
-        }),
-        JSON.stringify({
-          type: "result",
-          subtype: "success",
-          is_error: false,
-          result: "GROK_OK",
-          session_id: "grok-session",
-          usage: {
-            input_tokens: 30,
-            cache_read_input_tokens: 6,
-            output_tokens: 7,
-            reasoning_tokens: 3,
-            total_tokens: 43,
-          },
-          total_cost_usd: 0.02,
-          modelUsage: { "grok-4.6-build": {} },
-        }),
-      ].join("\n"),
+      JSON.stringify({
+        text: "GROK_OK",
+        stopReason: "end_turn",
+        sessionId: "grok-session",
+        usage: {
+          input_tokens: 30,
+          cache_read_input_tokens: 6,
+          output_tokens: 7,
+          reasoning_tokens: 3,
+          total_tokens: 43,
+        },
+        total_cost_usd: 0.02,
+        modelUsage: { "grok-4.6-build": {} },
+      }),
       "",
       "grok-4.6"
     );
