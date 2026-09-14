@@ -49,12 +49,12 @@ describe("invocationCommand", () => {
     expect(spec.args).not.toContain("danger-full-access");
   });
 
-  it("pins Claude model, effort, permissions, and no-recursion controls", () => {
+  it("passes Claude model, effort, permissions, and no-recursion controls", () => {
     const spec = invocationCommand(
       options({
         parent: "codex",
         provider: "claude",
-        model: "claude-fable-5",
+        model: "fable",
       })
     );
     expect(spec.command).toBe("claude");
@@ -62,7 +62,7 @@ describe("invocationCommand", () => {
     expect(spec.args).toEqual([
       "-p",
       "--model",
-      "claude-fable-5",
+      "fable",
       "--effort",
       "max",
       "--permission-mode",
@@ -139,7 +139,7 @@ describe("invocationCommand", () => {
       .not.toContain("Edit(/tmp/worktree/**)");
 
     const claude = invocationCommand(
-      options({ provider: "claude", model: "claude-fable-5", mode: "isolated-write" })
+      options({ provider: "claude", model: "fable", mode: "isolated-write" })
     );
     expect(claude.args).toEqual(
       expect.arrayContaining([
@@ -155,7 +155,7 @@ describe("invocationCommand", () => {
     const cases = [
       {
         provider: "claude" as const,
-        model: "claude-fable-5",
+        model: "fable",
         flag: (effort: "low" | "medium" | "high") => ["--effort", effort],
       },
       {
