@@ -151,8 +151,11 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           options.model,
           "--reasoning-effort",
           options.effort,
+          // acceptEdits and plan prompt on any shell command the Bash allow
+          // rule cannot match (a line break, a $VAR). Headless Grok dismisses
+          // the prompt and the whole turn ends cancelled.
           "--permission-mode",
-          options.mode === "read-only" ? "auto" : "acceptEdits",
+          "auto",
           "--sandbox",
           grokSandbox(options.mode),
           "--allow",

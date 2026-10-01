@@ -40,7 +40,7 @@ def verify(root, evidence):
             if receipt["mode"] == "read-only":
                 assert (sandbox, permission) == ("read-only", "auto"), path
             else:
-                assert (sandbox, permission) == ("workspace", "acceptEdits"), path
+                assert (sandbox, permission) == ("workspace", "auto"), path
             assert "--always-approve" not in argv, path
         else:
             assert receipt["modelEvidence"] in ("provider-report", "pinned-argv"), path

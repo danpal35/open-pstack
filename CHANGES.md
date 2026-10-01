@@ -2,6 +2,14 @@
 
 This port applies the Cursor → Claude Code substitutions in skill bodies. Earlier drafts left them flagged; this revision resolves them. A later pass added a Codex build that shares the same skills; see [Codex port](#codex-port) below.
 
+## 1.5.0-grok.2 runs Grok writers in auto permission mode
+
+Grok `isolated-write` lanes now pass `--permission-mode auto`, the mode read-only Grok lanes already used. The `workspace` sandbox, the `Bash` and `Edit(<cwd>/**)` allow rules, and the tool list are unchanged, and the runner still never passes `--always-approve`.
+
+Under `acceptEdits`, a writer's turn ended `cancelled` whenever the model issued a shell command the Bash allow rule could not match. On Grok CLI 1.0.44 that is any command containing a line break (a multi-line `python3 -c` script) or a shell variable (`echo $PATH`). The mode fell through to a permission prompt, headless Grok dismissed it, and the session log recorded `cancellation_category: permission_cancelled`. The receipt showed only `Grok did not complete: cancelled`, often after several minutes of reasoning and before any edit. `--allow 'Bash(*)'` and `dontAsk` did not change this. Under `auto` the same commands go to Grok's safety check and run. A file edit, a command with a shell variable, and a pytest run all completed in one turn.
+
+`auto` adds a safety-check pause of about four seconds on a command the allow rule does not cover.
+
 ## 1.5.0-grok.1 carries the fork changes onto Open Pstack 1.5.0
 
 This fork build merges upstream 1.5.0 (Cursor pstack 0.15.5) and keeps every fork addition listed under 1.4.1-grok.1 below. Setup takes upstream's assigned-family flow: it asks efforts for and probes only the families the role map uses, and it drops and lists retired-role rows. The fork's **Change named roles** path, Grok parent route column, and `~/.grok` sheet wiring stay in place. Poteto-mode takes upstream's Opus, Sol, and Grok 4.7 delegation defaults and keeps the fork's explorer-role routing for harness helper agents.

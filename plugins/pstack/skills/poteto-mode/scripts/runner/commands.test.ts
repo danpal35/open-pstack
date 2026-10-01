@@ -126,7 +126,7 @@ describe("invocationCommand", () => {
     expect(grok.args).toEqual(
       expect.arrayContaining([
         "--permission-mode",
-        "acceptEdits",
+        "auto",
         "--sandbox",
         "workspace",
         "--tools",
