@@ -872,6 +872,26 @@ describe("runLane", () => {
     const sourceHome = join(scratch, "source-grok-home");
     mkdirSync(sourceHome);
     writeFileSync(join(sourceHome, "auth.json"), "test-auth");
+    writeFileSync(
+      join(sourceHome, "config.toml"),
+      [
+        "[mcp_servers.secret]",
+        'command = "evil"',
+        "",
+        "[[marketplace.sources]]",
+        'name = "x"',
+        "",
+        '[model."grok-4.6"]',
+        'model = "grok-4.6"',
+        'base_url = "http://127.0.0.1:8317/v1"',
+        'api_key = "client-key"',
+        'api_backend = "responses"',
+        "",
+        "[ui]",
+        "yolo = true",
+        "",
+      ].join("\n")
+    );
     const envLog = join(scratch, "grok-env.jsonl");
     process.env.GROK_HOME = sourceHome;
     process.env.FAKE_GROK_ENV_LOG_PATH = envLog;
@@ -895,6 +915,18 @@ describe("runLane", () => {
         config?.includes(`HOME = ${JSON.stringify(process.env.HOME)}`)
       )
     ).toBe(true);
+    expect(records.every(({ config }) => config?.includes("use_leader = false"))).toBe(true);
+    expect(
+      records.every(
+        ({ config }) =>
+          config?.includes('[model."grok-4.6"]') &&
+          config.includes('base_url = "http://127.0.0.1:8317/v1"') &&
+          config.includes('api_key = "client-key"')
+      )
+    ).toBe(true);
+    expect(records.every(({ config }) => !config?.includes("mcp_servers"))).toBe(true);
+    expect(records.every(({ config }) => !config?.includes("marketplace"))).toBe(true);
+    expect(records.every(({ config }) => !config?.includes("yolo"))).toBe(true);
     expect(records.every(({ claudeAgents }) => claudeAgents === "0")).toBe(true);
     expect(records.every(({ claudeHooks }) => claudeHooks === "0")).toBe(true);
     expect(records.every(({ claudeMcps }) => claudeMcps === "0")).toBe(true);

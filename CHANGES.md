@@ -2,6 +2,10 @@
 
 This port applies the Cursor → Claude Code substitutions in skill bodies. Earlier drafts left them flagged; this revision resolves them. A later pass added a Codex build that shares the same skills; see [Codex port](#codex-port) below.
 
+## 1.5.0-grok.3 keeps Grok model routing inside the isolated home
+
+The pstack runner builds a temporary `$GROK_HOME` for every Grok lane. It now copies the `[model.*]` and `[endpoints]` tables from the user's `~/.grok/config.toml` into that home's isolation config, and nothing else. Before this, a Grok lane fell back to the default xAI endpoint and silently bypassed a per-model proxy `base_url` that the interactive Grok CLI honored. Verified on 2026-10-02 against a local CLIProxyAPI request log: the lane produced no proxy request before the change and a `POST /v1/responses` after it.
+
 ## 1.5.0-grok.2 runs Grok writers in auto permission mode
 
 Grok `isolated-write` lanes now pass `--permission-mode auto`, the mode read-only Grok lanes already used. The `workspace` sandbox, the `Bash` and `Edit(<cwd>/**)` allow rules, and the tool list are unchanged, and the runner still never passes `--always-approve`.

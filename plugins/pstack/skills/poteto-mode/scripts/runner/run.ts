@@ -196,6 +196,32 @@ function grokIsolationConfig(shellHome: string | undefined): string {
   return `${lines.join("\n")}\n`;
 }
 
+const GROK_ROUTING_TABLE_HEADER = /^\s*\[\s*(?:model\.|endpoints\s*\])/;
+
+export function grokRoutingTables(sourceConfig: string): string {
+  const kept: string[] = [];
+  let keep = false;
+  for (const line of sourceConfig.split("\n")) {
+    if (/^\s*\[/.test(line)) keep = GROK_ROUTING_TABLE_HEADER.test(line);
+    if (keep) kept.push(line);
+  }
+  if (kept.length === 0) return "";
+  return [
+    "",
+    "# Model endpoint tables copied from the user's trusted Grok config so a",
+    "# proxied base_url still applies inside the isolated home.",
+    ...kept,
+    "",
+  ].join("\n");
+}
+
+function sourceGrokRoutingTables(sourceHome: string | null): string {
+  if (sourceHome === null) return "";
+  const sourceConfig = join(sourceHome, "config.toml");
+  if (!existsSync(sourceConfig)) return "";
+  return grokRoutingTables(readFileSync(sourceConfig, "utf8"));
+}
+
 function prepareChildEnvironment(
   provider: Provider,
   source: NodeJS.ProcessEnv = process.env
@@ -214,7 +240,11 @@ function prepareChildEnvironment(
       chmodSync(isolatedAuth, 0o600);
     }
     const isolatedConfig = join(isolatedHome, "config.toml");
-    writeFileSync(isolatedConfig, grokIsolationConfig(source.HOME), { mode: 0o600 });
+    writeFileSync(
+      isolatedConfig,
+      grokIsolationConfig(source.HOME) + sourceGrokRoutingTables(originalHome),
+      { mode: 0o600 }
+    );
 
     env.HOME = isolatedHome;
     env.GROK_HOME = isolatedHome;
