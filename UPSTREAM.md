@@ -10,9 +10,9 @@ open-pstack tracks [Cursor's pstack](https://github.com/cursor/plugins/tree/main
 | Path | `pstack/` |
 | Commit | `12d587dfb20741cafc376c42c696c5f6e2a64487` |
 | Upstream version | `0.15.5` |
-| open-pstack version | `1.5.0-grok.3` |
+| open-pstack version | `1.5.0-grok.4` |
 
-The table above is the current Cursor sync point. Open Pstack 1.5.0 imports this 0.15.5 sync. The fork build `1.5.0-grok.3` carries the Grok parent routing, OpenRouter lane, Sonnet native lanes, and staging-first shipping boundary on top of it without changing the upstream sync point. `README-UPSTREAM.md` preserves the upstream pstack README verbatim. `CHANGES.md` and `NOTICE.md` describe the adaptations and provenance.
+The table above is the current Cursor sync point. Open Pstack 1.5.0 imports this 0.15.5 sync. The fork build `1.5.0-grok.4` carries the Grok parent routing, OpenRouter lane, Sonnet native lanes, and staging-first shipping boundary on top of it without changing the upstream sync point. `README-UPSTREAM.md` preserves the upstream pstack README verbatim. `CHANGES.md` and `NOTICE.md` describe the adaptations and provenance.
 
 ## Upstream-only exclusions
 
