@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
   cpSync,
@@ -12,7 +12,12 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { childEnvironment, runLane } from "./run.ts";
+import {
+  applyClaudeGatewaySettings,
+  childEnvironment,
+  claudeGatewayHost,
+  runLane,
+} from "./run.ts";
 import { main } from "./cli.ts";
 import type { Provider, RunnerOptions, RunnerReceipt } from "./types.ts";
 
@@ -1080,5 +1085,80 @@ describe("childEnvironment", () => {
       PATH: "/bin",
       KEEP_ME: "yes",
     });
+  });
+});
+
+describe("claudeGatewayHost", () => {
+  it("accepts a token only together with a non-Anthropic base URL", () => {
+    expect(
+      claudeGatewayHost({
+        ANTHROPIC_AUTH_TOKEN: "token",
+        ANTHROPIC_BASE_URL: "https://gateway.example:8317",
+      })
+    ).toBe("gateway.example:8317");
+    expect(claudeGatewayHost({ ANTHROPIC_AUTH_TOKEN: "token" })).toBeNull();
+    expect(
+      claudeGatewayHost({ ANTHROPIC_BASE_URL: "https://gateway.example:8317" })
+    ).toBeNull();
+    expect(
+      claudeGatewayHost({
+        ANTHROPIC_AUTH_TOKEN: "token",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+      })
+    ).toBeNull();
+    expect(
+      claudeGatewayHost({
+        ANTHROPIC_AUTH_TOKEN: "token",
+        ANTHROPIC_BASE_URL: "not a url",
+      })
+    ).toBeNull();
+  });
+});
+
+describe("applyClaudeGatewaySettings", () => {
+  const configDir = mkdtempSync(join(tmpdir(), "pstack-claude-settings-"));
+  writeFileSync(
+    join(configDir, "settings.json"),
+    JSON.stringify({
+      env: {
+        ANTHROPIC_BASE_URL: "https://gateway.example:8317",
+        ANTHROPIC_AUTH_TOKEN: "settings-token",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-9",
+        AWS_PROFILE: "unrelated",
+      },
+    })
+  );
+  afterAll(() => rmSync(configDir, { recursive: true, force: true }));
+
+  it("carries only the gateway keys into an environment without a gateway", () => {
+    const env: NodeJS.ProcessEnv = {
+      CLAUDE_CONFIG_DIR: configDir,
+      ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+    };
+    applyClaudeGatewaySettings(env);
+    expect(env).toEqual({
+      CLAUDE_CONFIG_DIR: configDir,
+      ANTHROPIC_BASE_URL: "https://gateway.example:8317",
+      ANTHROPIC_AUTH_TOKEN: "settings-token",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-9",
+    });
+  });
+
+  it("leaves a gateway already named by the parent environment alone", () => {
+    const env: NodeJS.ProcessEnv = {
+      CLAUDE_CONFIG_DIR: configDir,
+      ANTHROPIC_BASE_URL: "https://other.example",
+      ANTHROPIC_AUTH_TOKEN: "parent-token",
+    };
+    applyClaudeGatewaySettings(env);
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://other.example");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("parent-token");
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+  });
+
+  it("does nothing without a settings file", () => {
+    const env: NodeJS.ProcessEnv = { CLAUDE_CONFIG_DIR: join(configDir, "missing") };
+    applyClaudeGatewaySettings(env);
+    expect(env).toEqual({ CLAUDE_CONFIG_DIR: join(configDir, "missing") });
   });
 });

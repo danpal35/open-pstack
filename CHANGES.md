@@ -2,6 +2,10 @@
 
 This port applies the Cursor → Claude Code substitutions in skill bodies. Earlier drafts left them flagged; this revision resolves them. A later pass added a Codex build that shares the same skills; see [Codex port](#codex-port) below.
 
+## 1.5.0-grok.4 lets Claude lanes authenticate through a gateway
+
+A Claude CLI routed through an Anthropic-compatible gateway authenticates with `ANTHROPIC_AUTH_TOKEN` and holds no OAuth login. The runner's Claude preflight only accepted `claude auth status` reporting `loggedIn: true`, and the lane itself runs with `--setting-sources project`, which drops a gateway route kept in the `env` block of the user's Claude `settings.json`. A Codex or Grok parent could therefore never run a `claude:*` lane through a gateway. The preflight now also passes when `ANTHROPIC_AUTH_TOKEN` is set with an `ANTHROPIC_BASE_URL` other than `api.anthropic.com`, and the receipt names the gateway host. When the parent environment names no gateway, the runner carries `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_DEFAULT_*_MODEL` from that settings `env` block into the lane, and nothing else. Verified on 2026-10-04: with an empty environment the lane failed with "Not logged in" before the change and completed with a provider-reported Opus revision after it.
+
 ## 1.5.0-grok.3 keeps Grok model routing inside the isolated home
 
 The pstack runner builds a temporary `$GROK_HOME` for every Grok lane. It now copies the `[model.*]` and `[endpoints]` tables from the user's `~/.grok/config.toml` into that home's isolation config, and nothing else. Before this, a Grok lane fell back to the default xAI endpoint and silently bypassed a per-model proxy `base_url` that the interactive Grok CLI honored. Verified on 2026-10-02 against a local CLIProxyAPI request log: the lane produced no proxy request before the change and a `POST /v1/responses` after it.

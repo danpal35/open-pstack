@@ -222,11 +222,45 @@ function sourceGrokRoutingTables(sourceHome: string | null): string {
   return grokRoutingTables(readFileSync(sourceConfig, "utf8"));
 }
 
+const CLAUDE_GATEWAY_SETTINGS = /^ANTHROPIC_(BASE_URL|AUTH_TOKEN|DEFAULT_[A-Z]+_MODEL)$/;
+
+// The lane runs with `--setting-sources project`, which drops the gateway route
+// a user keeps in their Claude settings env. Carry over only those keys, and
+// only when the parent environment does not already name a gateway.
+export function applyClaudeGatewaySettings(env: NodeJS.ProcessEnv): void {
+  if (claudeGatewayHost(env) !== null) return;
+  const configDir = env.CLAUDE_CONFIG_DIR !== undefined && env.CLAUDE_CONFIG_DIR.length > 0
+    ? env.CLAUDE_CONFIG_DIR
+    : env.HOME === undefined || env.HOME.length === 0
+      ? null
+      : join(env.HOME, ".claude");
+  if (configDir === null) return;
+
+  let settingsEnv: unknown;
+  try {
+    const settings: unknown = JSON.parse(readFileSync(join(configDir, "settings.json"), "utf8"));
+    settingsEnv = settings !== null && typeof settings === "object"
+      ? (settings as { env?: unknown }).env
+      : null;
+  } catch {
+    return;
+  }
+  if (settingsEnv === null || typeof settingsEnv !== "object") return;
+
+  const gateway: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(settingsEnv)) {
+    if (CLAUDE_GATEWAY_SETTINGS.test(key) && typeof value === "string") gateway[key] = value;
+  }
+  if (claudeGatewayHost(gateway) === null) return;
+  Object.assign(env, gateway);
+}
+
 function prepareChildEnvironment(
   provider: Provider,
   source: NodeJS.ProcessEnv = process.env
 ): PreparedChildEnvironment {
   const env = childEnvironment(provider, source);
+  if (provider === "claude") applyClaudeGatewaySettings(env);
   if (provider !== "grok") return { env, dispose() {} };
 
   const isolatedHome = mkdtempSync(join(tmpdir(), "pstack-grok-home-"));
@@ -516,8 +550,31 @@ async function waitForGrokPreflightRetry(
   }
 }
 
-function preflightPassed(provider: Provider, model: string, result: ProcessResult): boolean {
-  if (result.exitCode !== 0 || result.timedOut) return false;
+// A Claude CLI routed through an Anthropic-compatible gateway authenticates
+// with ANTHROPIC_AUTH_TOKEN and never holds an OAuth login, so `claude auth
+// status` reports loggedIn false there. The model turn itself proves the token.
+export function claudeGatewayHost(env: NodeJS.ProcessEnv): string | null {
+  const token = env.ANTHROPIC_AUTH_TOKEN;
+  const baseUrl = env.ANTHROPIC_BASE_URL;
+  if (token === undefined || token.length === 0) return null;
+  if (baseUrl === undefined || baseUrl.length === 0) return null;
+  try {
+    const host = new URL(baseUrl).host;
+    return host === "api.anthropic.com" ? null : host;
+  } catch {
+    return null;
+  }
+}
+
+function preflightPassed(
+  provider: Provider,
+  model: string,
+  result: ProcessResult,
+  env: NodeJS.ProcessEnv
+): boolean {
+  if (result.timedOut) return false;
+  if (provider === "claude" && claudeGatewayHost(env) !== null) return true;
+  if (result.exitCode !== 0) return false;
   const combined = `${result.stdout}\n${result.stderr}`;
   switch (provider) {
     case "claude": {
@@ -541,7 +598,15 @@ function preflightPassed(provider: Provider, model: string, result: ProcessResul
   }
 }
 
-function successfulPreflightEvidence(provider: Provider, model: string): string {
+function successfulPreflightEvidence(
+  provider: Provider,
+  model: string,
+  env: NodeJS.ProcessEnv
+): string {
+  const gatewayHost = provider === "claude" ? claudeGatewayHost(env) : null;
+  if (gatewayHost !== null) {
+    return `authenticated via ANTHROPIC_AUTH_TOKEN gateway ${gatewayHost}`;
+  }
   return provider === "grok"
     ? `authenticated; model ${model} available`
     : "authenticated";
@@ -804,9 +869,9 @@ async function executeLane(
     runProgress
   );
   let rawPreflightEvidence = evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`);
-  let passed = preflightPassed(options.provider, options.model, preflightResult);
+  let passed = preflightPassed(options.provider, options.model, preflightResult, env);
   let preflightEvidence = passed
-    ? successfulPreflightEvidence(options.provider, options.model)
+    ? successfulPreflightEvidence(options.provider, options.model, env)
     : rawPreflightEvidence;
 
   if (
@@ -850,11 +915,11 @@ async function executeLane(
       runProgress
     );
     rawPreflightEvidence = evidence(`${preflightResult.stdout}\n${preflightResult.stderr}`);
-    passed = preflightPassed(options.provider, options.model, preflightResult);
+    passed = preflightPassed(options.provider, options.model, preflightResult, env);
     preflightEvidence = retriedPreflightEvidence(
       firstPreflightEvidence,
       passed
-        ? successfulPreflightEvidence(options.provider, options.model)
+        ? successfulPreflightEvidence(options.provider, options.model, env)
         : rawPreflightEvidence,
       passed
     );
