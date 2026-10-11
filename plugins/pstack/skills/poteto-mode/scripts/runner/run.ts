@@ -11,13 +11,15 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { invocationCommand, preflightCommand, type CommandSpec } from "./commands.ts";
 import { versionedClaudeAlias } from "./model-aliases.ts";
-import { parseProviderOutput, reportedModelMatches } from "./parse-output.ts";
+import { parseProviderOutput, ProviderResultError, reportedModelMatches } from "./parse-output.ts";
 import type {
+  ParsedOutput,
   Provider,
   ReceiptStatus,
   RunnerOptions,
@@ -57,6 +59,11 @@ function evidence(value: string): string {
   return value.trim().slice(0, ERROR_EVIDENCE_LIMIT);
 }
 
+// A provider's terminal event ends its stream, so malformed output keeps the tail.
+function trailingEvidence(value: string): string {
+  return value.trim().slice(-ERROR_EVIDENCE_LIMIT);
+}
+
 function removeIfExists(path: string): void {
   if (existsSync(path)) unlinkSync(path);
 }
@@ -67,15 +74,36 @@ function reserve(path: string): void {
   closeSync(descriptor);
 }
 
-function reserveOutputs(options: RunnerOptions): void {
-  if (options.outputPath === options.receiptPath) {
-    throw new UsageError("output and receipt paths must differ");
+interface ModelStreams {
+  readonly stdout: number;
+  readonly stderr: number;
+}
+
+function modelStreamPaths(receiptPath: string): { stdoutPath: string; stderrPath: string } {
+  return { stdoutPath: `${receiptPath}.stdout`, stderrPath: `${receiptPath}.stderr` };
+}
+
+function reserveOutputs(options: RunnerOptions): ModelStreams {
+  const { stdoutPath, stderrPath } = modelStreamPaths(options.receiptPath);
+  const paths = [options.outputPath, options.receiptPath, stdoutPath, stderrPath];
+  const resolved = paths.map((path) => resolve(path));
+  if (new Set(resolved).size !== paths.length || resolved.includes(resolve(options.promptPath))) {
+    throw new UsageError("prompt, output, receipt, and stream paths must be distinct");
   }
-  reserve(options.outputPath);
+  const created: string[] = [];
+  let stdout: number | null = null;
   try {
-    reserve(options.receiptPath);
+    for (const path of paths.slice(0, 2)) {
+      reserve(path);
+      created.push(path);
+    }
+    stdout = openSync(stdoutPath, "wx", 0o600);
+    created.push(stdoutPath);
+    const stderr = openSync(stderrPath, "wx", 0o600);
+    return { stdout, stderr };
   } catch (error) {
-    removeIfExists(options.outputPath);
+    if (stdout !== null) closeSync(stdout);
+    for (const path of created) removeIfExists(path);
     throw error;
   }
 }
@@ -344,7 +372,8 @@ interface StreamCapture {
 
 function captureStream(
   stream: ReadableStream<Uint8Array>,
-  onChunk: (bytes: number) => void
+  onChunk: (bytes: number) => void,
+  descriptor?: number
 ): StreamCapture {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -357,6 +386,12 @@ function captureStream(
         const next = await reader.read();
         if (next.done) break;
         onChunk(next.value.byteLength);
+        if (descriptor !== undefined) {
+          let offset = 0;
+          while (offset < next.value.byteLength) {
+            offset += writeSync(descriptor, next.value, offset, next.value.byteLength - offset);
+          }
+        }
         text += decoder.decode(next.value, { stream: true });
       }
       text += decoder.decode();
@@ -407,7 +442,8 @@ async function runProcess(
   deadlineAt: number | null,
   cancellation: RunCancellation,
   progressLabel: string,
-  progress: RunProgress
+  progress: RunProgress,
+  streamFiles?: ModelStreams
 ): Promise<ProcessResult> {
   const processStarted = Date.now();
   const child = Bun.spawn([executable, ...spec.args], {
@@ -422,10 +458,10 @@ async function runProcess(
   let stderrBytes = 0;
   const stdoutCapture = captureStream(child.stdout, (bytes) => {
     stdoutBytes += bytes;
-  });
+  }, streamFiles?.stdout);
   const stderrCapture = captureStream(child.stderr, (bytes) => {
     stderrBytes += bytes;
-  });
+  }, streamFiles?.stderr);
   const heartbeatTimer = setInterval(() => {
     const elapsedSeconds = Math.floor((Date.now() - processStarted) / 1_000);
     progress.emit(
@@ -463,7 +499,7 @@ async function runProcess(
       stdin.end();
     }
 
-    const completions = [exited, cancelled];
+    const completions = [exited, cancelled, streams.then(() => exited)];
     if (deadline !== null) completions.push(deadline);
     const first = await Promise.race(completions);
 
@@ -566,6 +602,11 @@ export function claudeGatewayHost(env: NodeJS.ProcessEnv): string | null {
   }
 }
 
+function grokModelAvailable(value: string, model: string): boolean {
+  const escaped = model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_.-])${escaped}($|[^A-Za-z0-9_.-])`).test(value);
+}
+
 function preflightPassed(
   provider: Provider,
   model: string,
@@ -592,7 +633,9 @@ function preflightPassed(
     case "codex":
       return /logged in/i.test(combined);
     case "grok":
-      return /logged in/i.test(combined) && combined.includes(model);
+      return unavailableStatus(combined) === "child-failed"
+        && /\blogged in\b|\bYou are using XAI_API_KEY\./i.test(combined)
+        && grokModelAvailable(combined, model);
     case "openrouter":
       return /logged in/i.test(combined);
   }
@@ -613,7 +656,7 @@ function successfulPreflightEvidence(
 }
 
 function unavailableStatus(value: string): ReceiptStatus {
-  if (/not logged in|unauthenticated|authentication|sign in|login required/i.test(value)) {
+  if (/not logged in|not authenticated|unauthenticated|authentication|sign in|login required/i.test(value)) {
     return "unauthenticated";
   }
   if (/model.{0,40}(not found|unknown|unavailable|unsupported|not supported|invalid)|invalid.{0,20}model/i.test(value)) {
@@ -629,7 +672,7 @@ function preflightFailureStatus(
 ): ReceiptStatus {
   const status = unavailableStatus(value);
   if (status !== "child-failed") return status;
-  return provider === "grok" && !value.includes(model)
+  return provider === "grok" && !grokModelAvailable(value, model)
     ? "unavailable-model"
     : "unauthenticated";
 }
@@ -699,7 +742,7 @@ function modelProof(
 
 function completeReceipt(
   options: RunnerOptions,
-  partial: Omit<RunnerReceipt, "schemaVersion" | "parent" | "provider" | "model" | "effort" | "mode" | "cwd" | "promptPath" | "outputPath">
+  partial: Omit<RunnerReceipt, "schemaVersion" | "parent" | "provider" | "model" | "effort" | "mode" | "cwd" | "promptPath" | "outputPath" | "stdoutPath" | "stderrPath">
 ): RunnerReceipt {
   return {
     schemaVersion: 1,
@@ -711,6 +754,7 @@ function completeReceipt(
     cwd: options.cwd,
     promptPath: options.promptPath,
     outputPath: options.outputPath,
+    ...modelStreamPaths(options.receiptPath),
     ...partial,
   };
 }
@@ -770,10 +814,13 @@ async function executeLane(
   preflight: CommandSpec,
   progress: LaneProgress,
   env: NodeJS.ProcessEnv,
-  runProgress: RunProgress
+  runProgress: RunProgress,
+  streamFiles: ModelStreams
 ): Promise<RunResult> {
   const startedAt = new Date(started).toISOString();
   const prompt = readFileSync(options.promptPath, "utf8");
+  const parentNetworkDisabled = options.parent === "codex"
+    && process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1";
   const executable = Bun.which(invocation.command, {
     PATH: env.PATH,
     cwd: options.cwd,
@@ -996,7 +1043,8 @@ async function executeLane(
     deadlineAt,
     cancellation,
     `${options.provider} model`,
-    runProgress
+    runProgress,
+    streamFiles
   );
   const completed = Date.now();
   const base = {
@@ -1010,23 +1058,43 @@ async function executeLane(
     signal: result.signal,
   } as const;
 
-  if (result.cancelledBy !== null || result.timedOut || result.exitCode !== 0) {
+  let parsed: ParsedOutput | null = null;
+  let parseError: unknown = null;
+  if (result.cancelledBy === null && !result.timedOut
+      && (result.exitCode === 0 || (options.provider === "grok" && result.stdout.trim().length > 0))) {
+    try {
+      parsed = parseProviderOutput(options.provider, result.stdout, result.stderr, options.model);
+    } catch (error) {
+      parseError = error;
+    }
+  }
+  const providerFailure = parseError instanceof ProviderResultError ? parseError : null;
+  const metadata = providerFailure?.metadata ?? (result.exitCode === 0 ? parsed : null);
+  if (result.cancelledBy !== null || result.timedOut || providerFailure !== null
+      || result.exitCode !== 0) {
     const rawFailureEvidence = `${result.stderr}\n${result.stdout}`;
-    const failureEvidence = evidence(rawFailureEvidence);
     const status: ReceiptStatus = result.cancelledBy !== null
       ? "cancelled"
       : result.timedOut
         ? "timed-out"
-        : unavailableStatus(rawFailureEvidence);
+        : providerFailure?.status ?? unavailableStatus(rawFailureEvidence);
+    const sandboxHint = status === "child-failed" && providerFailure === null && parentNetworkDisabled
+      ? "likely cause: Codex parent sandbox has network disabled; see provider-dispatch.md#host-and-parent-prerequisites"
+      : null;
+    const failureEvidence = evidence(providerFailure !== null
+      ? `${providerFailure.message}\n${rawFailureEvidence}`
+      : sandboxHint !== null
+        ? `${sandboxHint}\n${rawFailureEvidence}`
+        : rawFailureEvidence);
     receipt = completeReceipt(options, {
       ...base,
       status,
-      reportedModel: null,
-      modelVerified: false,
-      modelEvidence: null,
-      sessionId: null,
-      usage: null,
-      costUsd: null,
+      ...(metadata === null
+        ? { reportedModel: null, modelVerified: false, modelEvidence: null }
+        : modelProof(options.provider, options.model, metadata.reportedModel)),
+      sessionId: metadata?.sessionId ?? null,
+      usage: metadata?.usage ?? null,
+      costUsd: metadata?.costUsd ?? null,
       error: {
         message: result.cancelledBy !== null
           ? result.signal === result.cancelledBy
@@ -1034,7 +1102,7 @@ async function executeLane(
             : `launcher received ${result.cancelledBy} after child exited`
           : result.timedOut
             ? `launcher exceeded the explicit ${options.timeoutMs}ms deadline`
-            : `child exited with status ${result.exitCode}`,
+            : providerFailure?.message ?? `child exited with status ${result.exitCode}${sandboxHint === null ? "" : `; ${sandboxHint}`}`,
         evidence: failureEvidence,
       },
     });
@@ -1044,12 +1112,8 @@ async function executeLane(
   }
 
   try {
-    const parsed = parseProviderOutput(
-      options.provider,
-      result.stdout,
-      result.stderr,
-      options.model
-    );
+    if (parseError !== null) throw parseError;
+    if (parsed === null) throw new Error("provider result was not parsed");
     const proof = modelProof(
       options.provider,
       options.model,
@@ -1084,7 +1148,7 @@ async function executeLane(
       costUsd: null,
       error: {
         message,
-        evidence: evidence(`${result.stderr}\n${result.stdout}`),
+        evidence: trailingEvidence(`${result.stderr}\n${result.stdout}`),
       },
     });
   }
@@ -1116,8 +1180,9 @@ export async function runLane(
   };
   const cancellation = installRunCancellation();
   let child: PreparedChildEnvironment | null = null;
+  let streamFiles: ModelStreams | null = null;
   try {
-    reserveOutputs(options);
+    streamFiles = reserveOutputs(options);
     try {
       child = prepareChildEnvironment(options.provider);
       return await executeLane(
@@ -1129,7 +1194,8 @@ export async function runLane(
         preflight,
         progress,
         child.env,
-        runProgress
+        runProgress,
+        streamFiles
       );
     } catch (error) {
       const completed = Date.now();
@@ -1175,6 +1241,10 @@ export async function runLane(
   } finally {
     child?.dispose();
     cancellation.dispose();
+    if (streamFiles !== null) {
+      closeSync(streamFiles.stdout);
+      closeSync(streamFiles.stderr);
+    }
   }
 }
 

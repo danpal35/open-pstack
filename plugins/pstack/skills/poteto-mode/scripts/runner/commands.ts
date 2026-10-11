@@ -151,9 +151,9 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           options.model,
           "--reasoning-effort",
           options.effort,
-          // acceptEdits and plan prompt on any shell command the Bash allow
-          // rule cannot match (a line break, a $VAR). Headless Grok dismisses
-          // the prompt and the whole turn ends cancelled.
+          // Headless Grok cancels the whole turn on a permission prompt, in both access modes.
+          // Auto mode reports a blocked call to the model instead; the sandbox still confines
+          // writes (read-only, or workspace for isolated-write).
           "--permission-mode",
           "auto",
           "--sandbox",
@@ -168,7 +168,7 @@ export function invocationCommand(options: RunnerOptions): CommandSpec {
           "--disallowed-tools",
           "Agent,search_tool,use_tool",
           "--output-format",
-          "json",
+          "streaming-messages-json",
           "--cwd",
           options.cwd,
           "--no-subagents",
