@@ -1,7 +1,7 @@
 """Check artifacts from a live Grok-parent writer/reviewer swap in T3.
 
 Usage: python3 tests/grok-role-swap.py /path/to/verification-project [evidence-directory]
-The project has grok-writer/ and terra-writer/, each with calc.py and check.py.
+The project has grok-writer/ and sol-writer/, each with calc.py and check.py.
 Receipts and final responses are under evidence/. Run the writers, then review
 each implementation with the other model, through the installed runner.
 """
@@ -15,9 +15,9 @@ import sys
 def verify(root, evidence):
     expected = {
         ("grok-writer", "isolated-write", "grok"): ("grok-4.6", "high"),
-        ("terra-writer", "isolated-write", "codex"): ("gpt-5.6-terra", "medium"),
-        ("grok-writer", "read-only", "codex"): ("gpt-5.6-terra", "medium"),
-        ("terra-writer", "read-only", "grok"): ("grok-4.6", "high"),
+        ("sol-writer", "isolated-write", "codex"): ("gpt-5.6-sol", "high"),
+        ("grok-writer", "read-only", "codex"): ("gpt-5.6-sol", "high"),
+        ("sol-writer", "read-only", "grok"): ("grok-4.6", "high"),
     }
     found = set()
     for path in sorted(evidence.rglob("*.json")):
@@ -53,7 +53,7 @@ def verify(root, evidence):
         found.add(key)
         print(f"PASS {key}: {receipt['model']}@{receipt['effort']} parent=grok")
     assert found == set(expected), f"Missing successful routes: {set(expected) - found}"
-    for directory in ("grok-writer", "terra-writer"):
+    for directory in ("grok-writer", "sol-writer"):
         result = subprocess.run(
             [sys.executable, "check.py"], cwd=root / directory,
             check=True, text=True, capture_output=True,

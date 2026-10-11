@@ -29,3 +29,9 @@ Local live evidence is retained in the sibling `pstack-grok-verification` projec
 The original live test caught Grok returning exit zero after a permission cancellation. Regression tests now reject cancelled, truncated, and missing terminal reasons, and verify that a cancelled worker does not publish an output artifact. Read-only Grok explicitly uses auto approval mode while retaining its read-only OS sandbox. Both HOME and GROK_HOME remain isolated; inheriting the real home can hide permission failures by importing ambient Claude settings.
 
 These small tasks verify dispatch, editing, review, and isolation behavior. They do not compare the models' quality on larger engineering tasks. A future Grok CLI or pstack update should rerun the live checks, especially the sandbox probe.
+
+## Rerun 2026-10-11 on 1.6.1-grok.1
+
+Candidate: open-pstack `1.6.1-grok.1` installed from the Mac mini clone. Grok CLI `1.0.50`, Codex CLI through the shared CLI proxy, Bun `1.4.2`. The Codex lane is now `codex:gpt-5.6-sol@high` (Terra was retired on 2026-10-04), and the second directory is `sol-writer`; the verifier expects those values.
+
+The four lanes ran through the installed `pstack-runner` with `--parent grok` from a Bash session rather than a T3 Grok conversation, so this rerun proves the runner, the isolated Grok home, the streaming terminal-event parser, and the swap, not T3's own dispatch. Results: both writers `complete` (Grok 16.9s with `modelEvidence: provider-report` and `modelVerified: true`; Sol 14.2s with `pinned-argv`), both swapped read-only reviews ended `VERDICT: PASS`, `python3 tests/grok-role-swap.py` reported all four routes and both `check.py` runs PASS, exit 0. The CLI proxy log recorded the lanes' `/v1/responses` and `/v1/chat/completions` requests during the run. Evidence: `~/Projects/pstack-grok-verification-20261011/evidence/release` on the mini.
