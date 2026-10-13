@@ -32,6 +32,8 @@ The catalog's [route table](model-catalog.md#routes) gives each provider's route
 
 `inherit-parent` and `auto` remain aliases. They use the parent's current model and effort through its native subagent primitive. In a panel they still consume one lane, but they reduce provider diversity; say so in the synthesis record.
 
+`orchestrator-inline` means the parent does the work in its own session and launches no worker. A descriptive parenthesis after this alias is explanatory text. Never turn an inline role into `inherit-parent` or `auto`. A task needing the parent's live MCP connections must stay inline unless the chosen worker route has those connections.
+
 ## Native lanes
 
 Native dispatch avoids a second CLI startup and its base context.
