@@ -74,6 +74,8 @@ A T3 lane completes only when all of these hold:
 
 A `wait` timeout means the child is still running: follow T3's `next`, and never poll or replace it. A failed, cancelled, interrupted, or mismatched task is a named dropout.
 
+`orchestrator-inline` means the parent does the work in its own session and launches no worker. A descriptive parenthesis after this alias is explanatory text. Never turn an inline role into `inherit-parent` or `auto`. A task needing the parent's live MCP connections must stay inline unless the chosen worker route has those connections.
+
 ## Native lanes
 
 Native dispatch avoids a second CLI startup and its base context.
